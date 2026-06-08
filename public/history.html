@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>My History | Quick Share</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main class="page-shell">
+    <section class="page-card">
+      <nav class="page-nav">
+        <a class="back" href="/">Back Home</a>
+        <a id="historyAuthLink" class="ghost" href="/auth.html">Sign In</a>
+      </nav>
+
+      <div class="page-copy">
+        <h1>My history</h1>
+        <p id="historyCopy">Sign in to view saved text snippets and files from your account.</p>
+      </div>
+
+      <section class="shares history-panel">
+        <div class="shares-head">
+          <div>
+            <h2>Saved shares</h2>
+            <p>Open, copy, or delete anything you saved from the home page.</p>
+          </div>
+          <button id="historyRefreshBtn" class="ghost" type="button">Refresh</button>
+        </div>
+        <div id="historyList" class="share-list"></div>
+      </section>
+    </section>
+  </main>
+  <div id="toast" class="toast"></div>
+  <script src="/history.js"></script>
+</body>
+</html>

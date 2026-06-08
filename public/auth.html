@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Account | Quick Share</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main class="page-shell">
+    <section class="page-card">
+      <nav class="page-nav">
+        <a class="back" href="/">Back Home</a>
+        <a class="ghost" href="/history.html">My History</a>
+      </nav>
+
+      <div class="page-copy">
+        <h1>Sign in or create an account</h1>
+        <p>Accounts are optional. Use one when you want your text snippets and files saved into personal history.</p>
+      </div>
+
+      <section class="auth-card">
+        <div class="auth-head">
+          <div>
+            <h2 id="authTitle">Welcome back</h2>
+            <p id="authSubtitle">Sign in to reopen, copy, and delete your saved shares later.</p>
+          </div>
+          <div class="tabs">
+            <button class="tab active" type="button" data-auth-mode="login">Login</button>
+            <button class="tab" type="button" data-auth-mode="signup">Sign up</button>
+          </div>
+        </div>
+
+        <form id="authForm" class="auth-form">
+          <label class="field">
+            <span>Username</span>
+            <input id="authUsername" type="text" placeholder="yourname" autocomplete="username">
+          </label>
+          <label class="field">
+            <span>Password</span>
+            <input id="authPassword" type="password" placeholder="password" autocomplete="current-password">
+          </label>
+          <div class="auth-actions">
+            <button id="authSubmit" class="button" type="submit">Login</button>
+            <button id="logoutBtn" class="ghost hidden" type="button">Log out</button>
+          </div>
+          <p id="authStatus" class="status"></p>
+        </form>
+      </section>
+    </section>
+  </main>
+  <script src="/auth.js"></script>
+</body>
+</html>

@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Quick Share</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main class="shell">
+    <section class="intro">
+      <nav>
+        <div class="brand">
+          <div class="mark">QS</div>
+          <div>
+            <strong>Quick Share</strong>
+            <p>Fast local links for text and files.</p>
+          </div>
+        </div>
+        <div class="nav-actions">
+          <a class="ghost" href="/history.html">My History</a>
+          <a id="authLink" class="ghost" href="/auth.html">Sign In</a>
+          <button id="refreshBtn" class="ghost" type="button">Refresh</button>
+        </div>
+      </nav>
+
+      <div class="hero">
+        <h1>Share fast. Grab faster.</h1>
+        <p>Paste text or drop a file, create a short link, and open it from any device on your local network. Sign in only when you want saved history.</p>
+        <div id="addressBar" class="address-bar hidden"></div>
+      </div>
+
+      <form id="shareForm" class="composer">
+        <div class="tabs" role="tablist">
+          <button class="tab active" type="button" data-kind="text">Text</button>
+          <button class="tab" type="button" data-kind="file">File</button>
+        </div>
+
+        <label id="textPanel" class="panel">
+          <span>Paste text</span>
+          <textarea id="textInput" placeholder="Paste anything you want to grab quickly..."></textarea>
+        </label>
+
+        <label id="filePanel" class="panel drop hidden">
+          <input id="fileInput" type="file">
+          <strong>Choose a file</strong>
+          <span id="fileName">or drag it here from your desktop</span>
+        </label>
+
+        <div class="form-row">
+          <label>
+            Expires
+            <select id="expiresInput">
+              <option value="1">1 hour</option>
+              <option value="6">6 hours</option>
+              <option value="24" selected>24 hours</option>
+              <option value="48">48 hours</option>
+            </select>
+          </label>
+          <label>
+            Password
+            <input id="passwordInput" type="password" placeholder="Optional">
+          </label>
+          <label id="saveRow" class="checkbox-row hidden">
+            <input id="saveToProfileInput" type="checkbox" checked>
+            <span>Save to my history</span>
+          </label>
+          <button class="button" type="submit">Create share</button>
+        </div>
+        <p id="status" class="status"></p>
+      </form>
+
+      <section id="resultCard" class="result-card hidden">
+        <div class="result-copy">
+          <h2>Share ready</h2>
+          <p>Open the link directly or scan the QR code from another phone or laptop on the same network.</p>
+          <div class="result-link-row">
+            <a id="resultLink" class="result-link" href="#" target="_blank" rel="noreferrer"></a>
+            <button id="copyResultBtn" class="ghost" type="button">Copy link</button>
+          </div>
+        </div>
+        <div class="qr-wrap">
+          <img id="qrImage" alt="QR code for share link">
+        </div>
+      </section>
+    </section>
+
+    <aside class="shares">
+      <div class="shares-head">
+        <div>
+          <h2>Recent public shares</h2>
+          <p>Quick access list for non-saved shares.</p>
+        </div>
+      </div>
+      <div id="shareList" class="share-list"></div>
+    </aside>
+  </main>
+  <div id="toast" class="toast"></div>
+  <script src="/app.js"></script>
+</body>
+</html>
