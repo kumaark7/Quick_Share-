@@ -620,6 +620,10 @@ input[type="text"] {
   backdrop-filter: blur(10px);
 }
 
+.auth-modal.hidden {
+  display: none;
+}
+
 .auth-modal-card {
   width: min(520px, 100%);
   display: grid;
@@ -779,6 +783,13 @@ input[type="text"] {
 .field {
   display: grid;
   gap: 8px;
+}
+
+.field.hidden,
+.checkbox-line.hidden,
+.social-block.hidden,
+.auth-modal-send.hidden {
+  display: none;
 }
 
 pre {

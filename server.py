@@ -28,6 +28,7 @@ STORAGE = ROOT / "storage"
 FILES = STORAGE / "files"
 INDEX = STORAGE / "shares.json"
 USERS = STORAGE / "users.json"
+PENDING_AUTH = STORAGE / "pending_auth.json"
 MAX_UPLOAD_BYTES = 200 * 1024 * 1024
 SESSION_SECRET = secrets.token_bytes(32)
 SESSION_COOKIE = "quickshare_session"
@@ -46,6 +47,8 @@ def ensure_storage() -> None:
         INDEX.write_text("{}", encoding="utf-8")
     if not USERS.exists():
         USERS.write_text("{}", encoding="utf-8")
+    if not PENDING_AUTH.exists():
+        PENDING_AUTH.write_text(json.dumps({"signups": {}, "reset_tokens": {}}), encoding="utf-8")
 
 
 def load_json(path: Path) -> dict[str, dict]:
@@ -75,6 +78,25 @@ def load_users() -> dict[str, dict]:
 
 def save_users(users: dict[str, dict]) -> None:
     save_json(USERS, users)
+
+
+def load_pending_auth() -> dict[str, dict]:
+    ensure_storage()
+    data = load_json(PENDING_AUTH)
+    if "signups" not in data:
+        data["signups"] = {}
+    if "reset_tokens" not in data:
+        data["reset_tokens"] = {}
+    return data
+
+
+def save_pending_auth(data: dict[str, dict]) -> None:
+    ensure_storage()
+    if "signups" not in data:
+        data["signups"] = {}
+    if "reset_tokens" not in data:
+        data["reset_tokens"] = {}
+    PENDING_AUTH.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
 
 def new_id(existing: dict[str, dict], length: int = 7) -> str:
@@ -117,6 +139,20 @@ def cleanup_expired() -> None:
             changed = True
     if changed:
         save_shares(shares)
+    pending = load_pending_auth()
+    pending_changed = False
+    for email, signup in list(pending["signups"].items()):
+        expires_at = signup.get("signup_code_expires_at") or 0
+        if expires_at and expires_at <= now():
+            del pending["signups"][email]
+            pending_changed = True
+    for token, reset_data in list(pending["reset_tokens"].items()):
+        expires_at = reset_data.get("expires_at") or 0
+        if expires_at and expires_at <= now():
+            del pending["reset_tokens"][token]
+            pending_changed = True
+    if pending_changed:
+        save_pending_auth(pending)
 
 
 def local_addresses() -> list[str]:
@@ -203,6 +239,12 @@ def seconds_until_retry(sent_at: int | None) -> int:
     if not sent_at:
         return 0
     return max(0, VERIFY_RESEND_COOLDOWN_SECONDS - (now() - sent_at))
+
+
+def cleanup_user_reset_state(user: dict) -> None:
+    user["reset_code_hash"] = None
+    user["reset_code_expires_at"] = None
+    user["reset_code_sent_at"] = None
 
 
 def smtp_settings() -> dict[str, str | int | bool] | None:
@@ -424,6 +466,9 @@ class ShareHandler(BaseHTTPRequestHandler):
         if self.path == "/api/auth/send-password-reset":
             self.handle_send_password_reset()
             return
+        if self.path == "/api/auth/verify-reset-code":
+            self.handle_verify_reset_code()
+            return
         if self.path == "/api/auth/reset-password":
             self.handle_reset_password()
             return
@@ -511,31 +556,31 @@ class ShareHandler(BaseHTTPRequestHandler):
             self.send_json({"error": "Password needs at least 4 characters"}, HTTPStatus.BAD_REQUEST)
             return
         users = load_users()
+        pending = load_pending_auth()
         if any(normalize_username(user["username"]) == normalized for user in users.values()):
             self.send_json({"error": "That username is already taken"}, HTTPStatus.CONFLICT)
             return
         if any(normalize_email(user.get("email", "")) == email for user in users.values()):
             self.send_json({"error": "That email is already in use"}, HTTPStatus.CONFLICT)
             return
-        user_id = new_id(users, length=8)
+        if any(normalize_username(item.get("username", "")) == normalized for item in pending["signups"].values()):
+            self.send_json({"error": "That username is already waiting for verification"}, HTTPStatus.CONFLICT)
+            return
+        if email in pending["signups"]:
+            self.send_json({"error": "That email is already waiting for verification"}, HTTPStatus.CONFLICT)
+            return
         salt = secrets.token_hex(16)
-        user = {
-            "id": user_id,
+        pending["signups"][email] = {
             "username": username,
             "email": email,
             "password_salt": salt,
             "password_hash": hash_password(password, salt),
             "created_at": now(),
-            "verified_at": None,
             "signup_code_hash": None,
             "signup_code_expires_at": None,
             "signup_code_sent_at": None,
-            "reset_code_hash": None,
-            "reset_code_expires_at": None,
-            "reset_code_sent_at": None,
         }
-        users[user_id] = user
-        save_users(users)
+        save_pending_auth(pending)
         self.send_json(
             {
                 "ok": True,
@@ -554,32 +599,49 @@ class ShareHandler(BaseHTTPRequestHandler):
             return
         email = normalize_email(str(fields.get("email") or ""))
         code = str(fields.get("code") or "").strip()
-        users = load_users()
-        user = next((item for item in users.values() if normalize_email(item.get("email", "")) == email), None)
-        if not user:
+        pending = load_pending_auth()
+        signup = pending["signups"].get(email)
+        if not signup:
             self.send_json({"error": "No pending signup found for that email"}, HTTPStatus.NOT_FOUND)
-            return
-        if user.get("verified_at"):
-            self.send_json({"error": "That account is already verified"}, HTTPStatus.CONFLICT)
             return
         if not code:
             self.send_json({"error": "Enter the verification code"}, HTTPStatus.BAD_REQUEST)
             return
-        if not user.get("signup_code_hash"):
+        if not signup.get("signup_code_hash"):
             self.send_json({"error": "Send the verification code first"}, HTTPStatus.BAD_REQUEST)
             return
-        if (user.get("signup_code_expires_at") or 0) < now():
+        if (signup.get("signup_code_expires_at") or 0) < now():
             self.send_json({"error": "That verification code expired. Sign up again to get a new one."}, HTTPStatus.UNAUTHORIZED)
             return
-        expected = user.get("signup_code_hash") or ""
+        expected = signup.get("signup_code_hash") or ""
         if not hmac.compare_digest(expected, hash_code(email, code)):
             self.send_json({"error": "Wrong verification code"}, HTTPStatus.UNAUTHORIZED)
             return
-        user["verified_at"] = now()
-        user["signup_code_hash"] = None
-        user["signup_code_expires_at"] = None
-        user["signup_code_sent_at"] = None
+        users = load_users()
+        normalized = normalize_username(signup["username"])
+        if any(normalize_username(user["username"]) == normalized for user in users.values()):
+            self.send_json({"error": "That username was taken while you were verifying. Sign up again."}, HTTPStatus.CONFLICT)
+            return
+        if any(normalize_email(user.get("email", "")) == email for user in users.values()):
+            self.send_json({"error": "That email is already in use. Sign up again."}, HTTPStatus.CONFLICT)
+            return
+        user_id = new_id(users, length=8)
+        user = {
+            "id": user_id,
+            "username": signup["username"],
+            "email": email,
+            "password_salt": signup["password_salt"],
+            "password_hash": signup["password_hash"],
+            "created_at": signup["created_at"],
+            "verified_at": now(),
+            "reset_code_hash": None,
+            "reset_code_expires_at": None,
+            "reset_code_sent_at": None,
+        }
+        users[user_id] = user
         save_users(users)
+        del pending["signups"][email]
+        save_pending_auth(pending)
         self.send_response(200)
         self.set_user_cookie(user)
         payload = json.dumps({"ok": True, "user": {"id": user["id"], "username": user["username"], "email": user["email"]}}).encode("utf-8")
@@ -595,15 +657,12 @@ class ShareHandler(BaseHTTPRequestHandler):
             self.send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
             return
         email = normalize_email(str(fields.get("email") or ""))
-        users = load_users()
-        user = next((item for item in users.values() if normalize_email(item.get("email", "")) == email), None)
-        if not user:
+        pending = load_pending_auth()
+        signup = pending["signups"].get(email)
+        if not signup:
             self.send_json({"error": "No pending signup found for that email"}, HTTPStatus.NOT_FOUND)
             return
-        if user.get("verified_at"):
-            self.send_json({"error": "That account is already verified"}, HTTPStatus.CONFLICT)
-            return
-        retry_after = seconds_until_retry(user.get("signup_code_sent_at"))
+        retry_after = seconds_until_retry(signup.get("signup_code_sent_at"))
         if retry_after:
             self.send_json(
                 {"error": f"Please wait {retry_after} seconds before sending another code.", "retry_after": retry_after},
@@ -611,10 +670,10 @@ class ShareHandler(BaseHTTPRequestHandler):
             )
             return
         code = new_code()
-        user["signup_code_hash"] = hash_code(email, code)
-        user["signup_code_expires_at"] = now() + VERIFY_CODE_TTL_SECONDS
-        user["signup_code_sent_at"] = now()
-        save_users(users)
+        signup["signup_code_hash"] = hash_code(email, code)
+        signup["signup_code_expires_at"] = now() + VERIFY_CODE_TTL_SECONDS
+        signup["signup_code_sent_at"] = now()
+        save_pending_auth(pending)
         try:
             send_email_code(email, "Verify your Quick Share account", "Finish your signup", code)
         except RuntimeError as exc:
@@ -676,6 +735,7 @@ class ShareHandler(BaseHTTPRequestHandler):
                 HTTPStatus.TOO_MANY_REQUESTS,
             )
             return
+        cleanup_user_reset_state(user)
         code = new_code()
         user["reset_code_hash"] = hash_code(email, code)
         user["reset_code_expires_at"] = now() + VERIFY_CODE_TTL_SECONDS
@@ -698,7 +758,7 @@ class ShareHandler(BaseHTTPRequestHandler):
             }
         )
 
-    def handle_reset_password(self) -> None:
+    def handle_verify_reset_code(self) -> None:
         try:
             fields = self.read_form()
         except ValueError as exc:
@@ -706,7 +766,6 @@ class ShareHandler(BaseHTTPRequestHandler):
             return
         email = normalize_email(str(fields.get("email") or ""))
         code = str(fields.get("code") or "").strip()
-        password = str(fields.get("password") or "")
         users = load_users()
         user = next((item for item in users.values() if normalize_email(item.get("email", "")) == email), None)
         if not user or not user.get("verified_at"):
@@ -715,9 +774,6 @@ class ShareHandler(BaseHTTPRequestHandler):
         if not code:
             self.send_json({"error": "Enter the reset code"}, HTTPStatus.BAD_REQUEST)
             return
-        if len(password) < 4:
-            self.send_json({"error": "Password needs at least 4 characters"}, HTTPStatus.BAD_REQUEST)
-            return
         if (user.get("reset_code_expires_at") or 0) < now():
             self.send_json({"error": "That reset code expired. Request a new one."}, HTTPStatus.UNAUTHORIZED)
             return
@@ -725,13 +781,46 @@ class ShareHandler(BaseHTTPRequestHandler):
         if not hmac.compare_digest(expected, hash_code(email, code)):
             self.send_json({"error": "Wrong reset code"}, HTTPStatus.UNAUTHORIZED)
             return
+        pending = load_pending_auth()
+        token = secrets.token_urlsafe(24)
+        pending["reset_tokens"][token] = {"email": email, "expires_at": now() + VERIFY_CODE_TTL_SECONDS}
+        save_pending_auth(pending)
+        cleanup_user_reset_state(user)
+        save_users(users)
+        self.send_json({"ok": True, "message": "Reset code verified", "token": token})
+
+    def handle_reset_password(self) -> None:
+        try:
+            fields = self.read_form()
+        except ValueError as exc:
+            self.send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+            return
+        token = str(fields.get("token") or "").strip()
+        password = str(fields.get("password") or "")
+        if not token:
+            self.send_json({"error": "Missing reset session"}, HTTPStatus.BAD_REQUEST)
+            return
+        if len(password) < 4:
+            self.send_json({"error": "Password needs at least 4 characters"}, HTTPStatus.BAD_REQUEST)
+            return
+        pending = load_pending_auth()
+        reset_data = pending["reset_tokens"].get(token)
+        if not reset_data or (reset_data.get("expires_at") or 0) < now():
+            self.send_json({"error": "That reset session expired. Start again."}, HTTPStatus.UNAUTHORIZED)
+            return
+        email = normalize_email(reset_data.get("email", ""))
+        users = load_users()
+        user = next((item for item in users.values() if normalize_email(item.get("email", "")) == email), None)
+        if not user or not user.get("verified_at"):
+            self.send_json({"error": "No verified account found for that email"}, HTTPStatus.NOT_FOUND)
+            return
         salt = secrets.token_hex(16)
         user["password_salt"] = salt
         user["password_hash"] = hash_password(password, salt)
-        user["reset_code_hash"] = None
-        user["reset_code_expires_at"] = None
-        user["reset_code_sent_at"] = None
+        cleanup_user_reset_state(user)
         save_users(users)
+        del pending["reset_tokens"][token]
+        save_pending_auth(pending)
         self.send_json({"ok": True, "message": "Password reset complete"})
 
     def handle_logout(self) -> None:

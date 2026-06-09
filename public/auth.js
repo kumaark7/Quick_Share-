@@ -5,10 +5,8 @@ const authForm = document.querySelector("#authForm");
 const authEmail = document.querySelector("#authEmail");
 const authEmailRow = document.querySelector("#authEmailRow");
 const authUsername = document.querySelector("#authUsername");
-const authUsernameRow = document.querySelector("#authUsernameRow");
 const authUsernameLabel = document.querySelector("#authUsernameLabel");
 const authPassword = document.querySelector("#authPassword");
-const authPasswordRow = document.querySelector("#authPasswordRow");
 const rememberRow = document.querySelector("#rememberRow");
 const rememberMe = document.querySelector("#rememberMe");
 const authSubmit = document.querySelector("#authSubmit");
@@ -23,7 +21,9 @@ const authModal = document.querySelector("#authModal");
 const authModalTitle = document.querySelector("#authModalTitle");
 const authModalSubtitle = document.querySelector("#authModalSubtitle");
 const authModalClose = document.querySelector("#authModalClose");
+const authModalEmailRow = document.querySelector("#authModalEmailRow");
 const authModalEmail = document.querySelector("#authModalEmail");
+const authModalCodeRow = document.querySelector("#authModalCodeRow");
 const authModalCode = document.querySelector("#authModalCode");
 const authModalPasswordRow = document.querySelector("#authModalPasswordRow");
 const authModalPassword = document.querySelector("#authModalPassword");
@@ -37,12 +37,9 @@ const params = new URLSearchParams(window.location.search);
 let authMode = "login";
 let currentUser = null;
 let modalMode = "";
+let resetVerifiedToken = "";
 let modalCooldownEndsAt = 0;
 let cooldownTimer = null;
-
-function setHidden(element, hidden) {
-  element.classList.toggle("hidden", hidden);
-}
 
 function setStatus(target, message, isError = false) {
   target.textContent = message;
@@ -57,11 +54,8 @@ function setModalStatus(message, isError = false) {
   setStatus(authModalStatus, message, isError);
 }
 
-function startCooldown(seconds) {
-  modalCooldownEndsAt = Date.now() + (seconds * 1000);
-  stopCooldown();
-  cooldownTimer = window.setInterval(updateCooldownButton, 1000);
-  updateCooldownButton();
+function setHidden(element, hidden) {
+  element.classList.toggle("hidden", hidden);
 }
 
 function stopCooldown() {
@@ -83,17 +77,29 @@ function updateCooldownButton() {
   authModalSendCode.textContent = `Send again in ${remaining}s`;
 }
 
+function startCooldown(seconds) {
+  modalCooldownEndsAt = Date.now() + (seconds * 1000);
+  stopCooldown();
+  cooldownTimer = window.setInterval(updateCooldownButton, 1000);
+  updateCooldownButton();
+}
+
 function resetModal() {
   modalMode = "";
-  authModalEmail.readOnly = false;
+  resetVerifiedToken = "";
   authModalEmail.value = "";
   authModalCode.value = "";
   authModalPassword.value = "";
-  setHidden(authModalPasswordRow, true);
-  setModalStatus("");
-  stopCooldown();
+  authModalEmail.readOnly = false;
+  authModalSendCode.classList.remove("hidden");
   authModalSendCode.disabled = false;
   authModalSendCode.textContent = "Send code";
+  authModalSubmit.textContent = "Submit";
+  setHidden(authModalEmailRow, false);
+  setHidden(authModalCodeRow, false);
+  setHidden(authModalPasswordRow, true);
+  stopCooldown();
+  setModalStatus("");
 }
 
 function closeModal() {
@@ -103,33 +109,23 @@ function closeModal() {
 }
 
 function openModal(mode, email = "") {
+  resetModal();
   modalMode = mode;
   authModal.classList.remove("hidden");
   authModal.setAttribute("aria-hidden", "false");
   authModalEmail.value = email;
-  authModalCode.value = "";
-  authModalPassword.value = "";
-  setModalStatus("");
 
   if (mode === "signup") {
     authModalTitle.textContent = "Verify your email";
     authModalSubtitle.textContent = "Use the code from your inbox to finish creating your account.";
     authModalSubmit.textContent = "Submit";
     authModalEmail.readOnly = true;
-    setHidden(authModalPasswordRow, true);
-    stopCooldown();
-    authModalSendCode.disabled = false;
-    authModalSendCode.textContent = "Send code";
     setModalStatus("Tap Send code to get your verification code.");
   } else {
     authModalTitle.textContent = "Reset your password";
-    authModalSubtitle.textContent = "Send a code to your email, then choose a new password.";
-    authModalSubmit.textContent = "Reset password";
+    authModalSubtitle.textContent = "Send a code to your email, then verify it.";
+    authModalSubmit.textContent = "Verify code";
     authModalEmail.readOnly = false;
-    setHidden(authModalPasswordRow, false);
-    stopCooldown();
-    authModalSendCode.disabled = false;
-    authModalSendCode.textContent = "Send code";
   }
 }
 
@@ -168,7 +164,7 @@ function updateAuthUI() {
     authPassword.placeholder = "Create a password";
     authPassword.autocomplete = "new-password";
     authSubmit.textContent = "Create account";
-    authHelper.textContent = "After you create the account, we will open the verification popup.";
+    authHelper.textContent = "Nothing is saved until your verification code is correct.";
   } else {
     authTitle.textContent = "Welcome back";
     authSubtitle.textContent = "Sign in with your username or email and password.";
@@ -191,8 +187,8 @@ async function loadMe() {
 authTabs.forEach((tab) => {
   tab.addEventListener("click", () => {
     authMode = tab.dataset.authMode;
-    closeModal();
     authTabs.forEach((item) => item.classList.toggle("active", item === tab));
+    closeModal();
     setAuthStatus("");
     updateAuthUI();
   });
@@ -208,7 +204,7 @@ authForm.addEventListener("submit", async (event) => {
     data.set("email", authEmail.value.trim());
     data.set("username", authUsername.value.trim());
     data.set("password", authPassword.value);
-    setAuthStatus("Creating your account...");
+    setAuthStatus("Preparing your signup...");
   } else {
     data.set("username", authUsername.value.trim());
     data.set("password", authPassword.value);
@@ -226,7 +222,7 @@ authForm.addEventListener("submit", async (event) => {
 
   if (authMode === "signup") {
     openModal("signup", result.email || authEmail.value.trim());
-    setAuthStatus(result.message || "Account created. Now send the verification code.");
+    setAuthStatus(result.message || "Now send the verification code.");
     return;
   }
 
@@ -242,7 +238,7 @@ authModalSendCode.addEventListener("click", async () => {
   if (modalMode === "signup") {
     endpoint = "/api/auth/resend-signup-code";
     data.set("email", authModalEmail.value.trim());
-    setModalStatus("Sending another verification code...");
+    setModalStatus("Sending verification code...");
   } else if (modalMode === "reset") {
     endpoint = "/api/auth/send-password-reset";
     data.set("email", authModalEmail.value.trim());
@@ -256,15 +252,12 @@ authModalSendCode.addEventListener("click", async () => {
 
   if (!response.ok) {
     const retryAfter = Number(result.retry_after || 0);
-    if (retryAfter > 0) {
-      startCooldown(retryAfter);
-    }
+    if (retryAfter > 0) startCooldown(retryAfter);
     setModalStatus(result.error || "Could not send code", true);
     return;
   }
 
   startCooldown(Number(result.cooldown_seconds || RESEND_COOLDOWN_SECONDS));
-
   setModalStatus(result.message || "Code sent.");
 });
 
@@ -277,12 +270,16 @@ authModalSubmit.addEventListener("click", async () => {
     data.set("email", authModalEmail.value.trim());
     data.set("code", authModalCode.value.trim());
     setModalStatus("Verifying your account...");
-  } else if (modalMode === "reset") {
-    endpoint = "/api/auth/reset-password";
+  } else if (modalMode === "reset" && !resetVerifiedToken) {
+    endpoint = "/api/auth/verify-reset-code";
     data.set("email", authModalEmail.value.trim());
     data.set("code", authModalCode.value.trim());
+    setModalStatus("Verifying reset code...");
+  } else if (modalMode === "reset") {
+    endpoint = "/api/auth/reset-password";
+    data.set("token", resetVerifiedToken);
     data.set("password", authModalPassword.value);
-    setModalStatus("Resetting your password...");
+    setModalStatus("Saving your new password...");
   } else {
     return;
   }
@@ -300,6 +297,18 @@ authModalSubmit.addEventListener("click", async () => {
     closeModal();
     updateAuthUI();
     setAuthStatus("Account verified and signed in.");
+    return;
+  }
+
+  if (!resetVerifiedToken) {
+    resetVerifiedToken = result.token || "";
+    authModalSubtitle.textContent = "Code verified. Now enter your new password.";
+    authModalSubmit.textContent = "Save password";
+    authModalEmail.readOnly = true;
+    setHidden(authModalCodeRow, true);
+    setHidden(authModalPasswordRow, false);
+    authModalSendCode.classList.add("hidden");
+    setModalStatus("Reset code verified.");
     return;
   }
 
