@@ -15,6 +15,7 @@ const toast = document.querySelector("#toast");
 const refreshBtn = document.querySelector("#refreshBtn");
 const addressBar = document.querySelector("#addressBar");
 const authLink = document.querySelector("#authLink");
+const signupLink = document.querySelector("#signupLink");
 const resultCard = document.querySelector("#resultCard");
 const resultLink = document.querySelector("#resultLink");
 const copyResultBtn = document.querySelector("#copyResultBtn");
@@ -156,6 +157,7 @@ async function loadMe() {
   saveRow.classList.toggle("hidden", !currentUser);
   saveToProfileInput.disabled = !currentUser;
   authLink.textContent = currentUser ? `Signed in: ${currentUser.username}` : "Sign In";
+  signupLink.classList.toggle("hidden", Boolean(currentUser));
   const hasNever = expiresInput.querySelector('option[value="never"]');
   if (currentUser && !hasNever) {
     expiresInput.insertAdjacentHTML("beforeend", NEVER_OPTION);

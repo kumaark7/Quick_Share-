@@ -1,0 +1,81 @@
+Quick Share Deploy Note
+=======================
+
+Use this whenever you want to push local changes live.
+
+LOCAL -> PUSH TO GITHUB
+----------------------
+
+1. Open the project folder locally.
+
+2. Check what changed:
+   git status
+
+3. Add the changes:
+   git add .
+
+4. Create a commit:
+   git commit -m "Describe the change"
+
+5. Push to GitHub:
+   git push origin main
+
+
+VPS -> PULL LATEST CODE
+-----------------------
+
+1. Connect to the VPS.
+
+2. Go to the live app folder:
+   cd ~/Projects/quick-share
+
+3. Pull the latest code from GitHub:
+   git pull --ff-only origin main
+
+
+VPS -> RESTART QUICK SHARE
+--------------------------
+
+1. Restart the service:
+   sudo systemctl restart quick-share
+
+2. Check service status:
+   sudo systemctl status quick-share --no-pager
+
+
+OPTIONAL QUICK CHECKS
+---------------------
+
+Check git state on VPS:
+   git status
+
+Check recent app logs:
+   sudo journalctl -u quick-share -n 50 --no-pager
+
+Open the live site:
+   https://quickshare.projectdarkhope.xyz
+
+
+FULL SIMPLE FLOW
+----------------
+
+Local:
+   git add .
+   git commit -m "Describe the change"
+   git push origin main
+
+VPS:
+   cd ~/Projects/quick-share
+   git pull --ff-only origin main
+   sudo systemctl restart quick-share
+   sudo systemctl status quick-share --no-pager
+
+
+IMPORTANT
+---------
+
+- Do not delete the storage/ folder on the VPS.
+- storage/ keeps live files, shares, and account data.
+- If git pull --ff-only fails, run:
+  git status
+  and check what changed on the VPS before doing anything else.

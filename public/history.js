@@ -1,6 +1,7 @@
 const historyList = document.querySelector("#historyList");
 const historyCopy = document.querySelector("#historyCopy");
 const historyAuthLink = document.querySelector("#historyAuthLink");
+const historySignupLink = document.querySelector("#historySignupLink");
 const historyRefreshBtn = document.querySelector("#historyRefreshBtn");
 const toast = document.querySelector("#toast");
 
@@ -108,6 +109,7 @@ async function loadMe() {
   const result = await response.json();
   currentUser = result.authenticated ? result.user : null;
   historyAuthLink.textContent = currentUser ? `Signed in: ${currentUser.username}` : "Sign In";
+  historySignupLink.classList.toggle("hidden", Boolean(currentUser));
   historyCopy.textContent = currentUser
     ? `Saved shares for ${currentUser.username}. Open, copy, or delete anything you stored.`
     : "Sign in to view saved text snippets and files from your account.";

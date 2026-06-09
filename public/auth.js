@@ -32,6 +32,7 @@ const authModalSubmit = document.querySelector("#authModalSubmit");
 const authModalStatus = document.querySelector("#authModalStatus");
 
 const RESEND_COOLDOWN_SECONDS = 120;
+const params = new URLSearchParams(window.location.search);
 
 let authMode = "login";
 let currentUser = null;
@@ -116,7 +117,10 @@ function openModal(mode, email = "") {
     authModalSubmit.textContent = "Submit";
     authModalEmail.readOnly = true;
     setHidden(authModalPasswordRow, true);
-    startCooldown(RESEND_COOLDOWN_SECONDS);
+    stopCooldown();
+    authModalSendCode.disabled = false;
+    authModalSendCode.textContent = "Send code";
+    setModalStatus("Tap Send code to get your verification code.");
   } else {
     authModalTitle.textContent = "Reset your password";
     authModalSubtitle.textContent = "Send a code to your email, then choose a new password.";
@@ -187,6 +191,7 @@ async function loadMe() {
 authTabs.forEach((tab) => {
   tab.addEventListener("click", () => {
     authMode = tab.dataset.authMode;
+    closeModal();
     authTabs.forEach((item) => item.classList.toggle("active", item === tab));
     setAuthStatus("");
     updateAuthUI();
@@ -221,7 +226,7 @@ authForm.addEventListener("submit", async (event) => {
 
   if (authMode === "signup") {
     openModal("signup", result.email || authEmail.value.trim());
-    setAuthStatus(result.message || "Verification code sent.");
+    setAuthStatus(result.message || "Account created. Now send the verification code.");
     return;
   }
 
@@ -333,3 +338,10 @@ socialButtons.forEach((button) => {
 });
 
 loadMe();
+
+const requestedMode = params.get("mode");
+if (requestedMode === "signup" || requestedMode === "login") {
+  authMode = requestedMode;
+  authTabs.forEach((item) => item.classList.toggle("active", item.dataset.authMode === requestedMode));
+  updateAuthUI();
+}

@@ -519,7 +519,6 @@ class ShareHandler(BaseHTTPRequestHandler):
             return
         user_id = new_id(users, length=8)
         salt = secrets.token_hex(16)
-        code = new_code()
         user = {
             "id": user_id,
             "username": username,
@@ -528,21 +527,13 @@ class ShareHandler(BaseHTTPRequestHandler):
             "password_hash": hash_password(password, salt),
             "created_at": now(),
             "verified_at": None,
-            "signup_code_hash": hash_code(email, code),
-            "signup_code_expires_at": now() + VERIFY_CODE_TTL_SECONDS,
-            "signup_code_sent_at": now(),
+            "signup_code_hash": None,
+            "signup_code_expires_at": None,
+            "signup_code_sent_at": None,
             "reset_code_hash": None,
             "reset_code_expires_at": None,
             "reset_code_sent_at": None,
         }
-        try:
-            send_email_code(email, "Verify your Quick Share account", "Finish your signup", code)
-        except RuntimeError as exc:
-            self.send_json({"error": str(exc)}, HTTPStatus.SERVICE_UNAVAILABLE)
-            return
-        except OSError as exc:
-            self.send_json({"error": f"Could not send verification email: {exc}"}, HTTPStatus.BAD_GATEWAY)
-            return
         users[user_id] = user
         save_users(users)
         self.send_json(
@@ -550,7 +541,7 @@ class ShareHandler(BaseHTTPRequestHandler):
                 "ok": True,
                 "requires_verification": True,
                 "email": email,
-                "message": "Verification code sent. Enter it to finish signup.",
+                "message": "Account created. Use Send code to get your verification email.",
                 "cooldown_seconds": VERIFY_RESEND_COOLDOWN_SECONDS,
             }
         )
@@ -573,6 +564,9 @@ class ShareHandler(BaseHTTPRequestHandler):
             return
         if not code:
             self.send_json({"error": "Enter the verification code"}, HTTPStatus.BAD_REQUEST)
+            return
+        if not user.get("signup_code_hash"):
+            self.send_json({"error": "Send the verification code first"}, HTTPStatus.BAD_REQUEST)
             return
         if (user.get("signup_code_expires_at") or 0) < now():
             self.send_json({"error": "That verification code expired. Sign up again to get a new one."}, HTTPStatus.UNAUTHORIZED)
