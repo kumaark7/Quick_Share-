@@ -429,6 +429,15 @@ input[type="password"] {
   color: var(--text);
 }
 
+input[type="email"] {
+  min-width: 180px;
+  border: 1px solid var(--line);
+  border-radius: 15px;
+  padding: 12px 14px;
+  background: #0d1d32;
+  color: var(--text);
+}
+
 input[type="text"] {
   min-width: 180px;
   border: 1px solid var(--line);
@@ -495,6 +504,13 @@ input[type="text"] {
 
 .status.error {
   color: var(--danger);
+}
+
+.helper-text {
+  margin: -2px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
 }
 
 .shares {
@@ -723,6 +739,7 @@ pre {
   .button,
   .ghost,
   select,
+  input[type="email"],
   input[type="password"],
   input[type="text"] {
     width: 100%;

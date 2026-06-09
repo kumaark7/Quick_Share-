@@ -10,6 +10,7 @@ const authEmailRow = document.querySelector("#authEmailRow");
 const authCodeRow = document.querySelector("#authCodeRow");
 const authSubmit = document.querySelector("#authSubmit");
 const authSecondaryBtn = document.querySelector("#authSecondaryBtn");
+const authHelper = document.querySelector("#authHelper");
 const authStatus = document.querySelector("#authStatus");
 const logoutBtn = document.querySelector("#logoutBtn");
 
@@ -47,6 +48,7 @@ function updateAuthUI() {
     setHidden(authEmailRow, false);
     setHidden(authCodeRow, true);
     setHidden(authSecondaryBtn, true);
+    authHelper.textContent = "";
     setAuthStatus("");
     return;
   }
@@ -68,6 +70,7 @@ function updateAuthUI() {
     authSubtitle.textContent = `We sent a code to ${pendingSignupEmail}. Enter it to finish your account setup.`;
     authSubmit.textContent = "Send again";
     authSecondaryBtn.textContent = "Verify code";
+    authHelper.textContent = "Did not get the code? Use Send again to receive another email.";
     return;
   }
 
@@ -76,6 +79,7 @@ function updateAuthUI() {
     authSubtitle.textContent = `We sent a sign-in code to ${pendingLoginEmail}.`;
     authSubmit.textContent = "Send again";
     authSecondaryBtn.textContent = "Sign in";
+    authHelper.textContent = "Enter the code from your email, or use Send again if needed.";
     return;
   }
 
@@ -90,6 +94,11 @@ function updateAuthUI() {
       ? "Request a one-time code by email instead of using your password."
       : "Sign in to reopen, copy, and delete your saved shares later.";
   authSubmit.textContent = isSignup ? "Create account" : isEmailCode ? "Send code" : "Login";
+  authHelper.textContent = isSignup
+    ? "Create account first, then verify it with the code sent to your email."
+    : isEmailCode
+      ? "Enter your email and tap Send code."
+      : "";
 }
 
 async function loadMe() {
