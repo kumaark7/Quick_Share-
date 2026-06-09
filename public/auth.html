@@ -20,7 +20,7 @@
       </div>
 
       <section class="auth-card">
-          <div class="auth-head">
+        <div class="auth-head">
           <div>
             <h2 id="authTitle">Welcome back</h2>
             <p id="authSubtitle">Sign in to reopen, copy, and delete your saved shares later.</p>
@@ -28,7 +28,6 @@
           <div class="tabs">
             <button class="tab active" type="button" data-auth-mode="login">Login</button>
             <button class="tab" type="button" data-auth-mode="signup">Sign up</button>
-            <button class="tab" type="button" data-auth-mode="email-code">Email sign in</button>
           </div>
         </div>
 
@@ -37,26 +36,65 @@
             <span>Email</span>
             <input id="authEmail" type="email" placeholder="you@example.com" autocomplete="email">
           </label>
-          <label class="field">
-            <span>Username</span>
+          <label id="authUsernameRow" class="field">
+            <span id="authUsernameLabel">Username</span>
             <input id="authUsername" type="text" placeholder="yourname" autocomplete="username">
           </label>
-          <label class="field">
+          <label id="authPasswordRow" class="field">
             <span>Password</span>
             <input id="authPassword" type="password" placeholder="password" autocomplete="current-password">
           </label>
-          <label id="authCodeRow" class="field hidden">
-            <span>Verification code</span>
-            <input id="authCode" type="text" placeholder="6-digit code" inputmode="numeric" autocomplete="one-time-code">
+          <label id="rememberRow" class="checkbox-line">
+            <input id="rememberMe" type="checkbox">
+            <span>Remember me?</span>
           </label>
           <div class="auth-actions">
             <button id="authSubmit" class="button" type="submit">Login</button>
-            <button id="authSecondaryBtn" class="ghost hidden" type="button">Verify code</button>
             <button id="logoutBtn" class="ghost hidden" type="button">Log out</button>
+          </div>
+          <button id="forgotPasswordBtn" class="text-link" type="button">Forgot Password?</button>
+          <div class="social-block">
+            <div class="social-divider"><span>OR</span></div>
+            <div class="social-row">
+              <button class="social-btn google" data-provider="Google" type="button" aria-label="Continue with Google">G</button>
+              <button class="social-btn facebook" data-provider="Facebook" type="button" aria-label="Continue with Facebook">f</button>
+              <button class="social-btn linkedin" data-provider="LinkedIn" type="button" aria-label="Continue with LinkedIn">in</button>
+            </div>
           </div>
           <p id="authHelper" class="helper-text"></p>
           <p id="authStatus" class="status"></p>
         </form>
+      </section>
+
+      <section id="authModal" class="auth-modal hidden" aria-hidden="true">
+        <div class="auth-modal-card">
+          <div class="auth-modal-head">
+            <div>
+              <h3 id="authModalTitle">Verify your email</h3>
+              <p id="authModalSubtitle">Enter the code we sent to your email.</p>
+            </div>
+            <button id="authModalClose" class="ghost icon-ghost" type="button" aria-label="Close">×</button>
+          </div>
+
+          <label class="field">
+            <span>Email</span>
+            <input id="authModalEmail" type="email" placeholder="you@example.com" autocomplete="email">
+          </label>
+          <label class="field">
+            <span>Verification code</span>
+            <input id="authModalCode" type="text" placeholder="6-digit code" inputmode="numeric" autocomplete="one-time-code">
+          </label>
+          <label id="authModalPasswordRow" class="field hidden">
+            <span>New password</span>
+            <input id="authModalPassword" type="password" placeholder="New password" autocomplete="new-password">
+          </label>
+
+          <div class="auth-modal-actions">
+            <button id="authModalSendCode" class="ghost" type="button">Send code</button>
+            <button id="authModalSubmit" class="button" type="button">Submit</button>
+          </div>
+          <p id="authModalStatus" class="status"></p>
+        </div>
       </section>
     </section>
   </main>

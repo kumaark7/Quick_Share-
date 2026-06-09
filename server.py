@@ -33,6 +33,7 @@ SESSION_SECRET = secrets.token_bytes(32)
 SESSION_COOKIE = "quickshare_session"
 CLEANUP_INTERVAL_SECONDS = int(os.environ.get("QUICK_SHARE_CLEANUP_INTERVAL", "60"))
 VERIFY_CODE_TTL_SECONDS = int(os.environ.get("QUICK_SHARE_VERIFY_CODE_TTL", "900"))
+VERIFY_RESEND_COOLDOWN_SECONDS = int(os.environ.get("QUICK_SHARE_VERIFY_RESEND_COOLDOWN", "120"))
 
 
 def now() -> int:
@@ -187,6 +188,23 @@ def new_code(length: int = 6) -> str:
     return "".join(secrets.choice(digits) for _ in range(length))
 
 
+def find_user_by_identifier(users: dict[str, dict], identifier: str) -> dict | None:
+    normalized = normalize_username(identifier)
+    email = normalize_email(identifier)
+    for user in users.values():
+        if normalize_username(user.get("username", "")) == normalized:
+            return user
+        if normalize_email(user.get("email", "")) == email:
+            return user
+    return None
+
+
+def seconds_until_retry(sent_at: int | None) -> int:
+    if not sent_at:
+        return 0
+    return max(0, VERIFY_RESEND_COOLDOWN_SECONDS - (now() - sent_at))
+
+
 def smtp_settings() -> dict[str, str | int | bool] | None:
     host = os.environ.get("QUICK_SHARE_SMTP_HOST", "").strip()
     from_email = os.environ.get("QUICK_SHARE_SMTP_FROM", "").strip()
@@ -297,9 +315,12 @@ class ShareHandler(BaseHTTPRequestHandler):
         users = load_users()
         return users.get(user_id)
 
-    def set_user_cookie(self, user: dict) -> None:
+    def set_user_cookie(self, user: dict, remember: bool = False) -> None:
         token = f"{user['id']}:{user_signature(user['id'])}"
-        self.send_header("Set-Cookie", f"{SESSION_COOKIE}={token}; Path=/; HttpOnly; SameSite=Lax")
+        cookie = f"{SESSION_COOKIE}={token}; Path=/; HttpOnly; SameSite=Lax"
+        if remember:
+            cookie += "; Max-Age=2592000"
+        self.send_header("Set-Cookie", cookie)
 
     def clear_user_cookie(self) -> None:
         self.send_header(
@@ -394,14 +415,17 @@ class ShareHandler(BaseHTTPRequestHandler):
         if self.path == "/api/auth/verify-signup":
             self.handle_verify_signup()
             return
+        if self.path == "/api/auth/resend-signup-code":
+            self.handle_resend_signup_code()
+            return
         if self.path == "/api/auth/login":
             self.handle_login()
             return
-        if self.path == "/api/auth/send-login-code":
-            self.handle_send_login_code()
+        if self.path == "/api/auth/send-password-reset":
+            self.handle_send_password_reset()
             return
-        if self.path == "/api/auth/verify-login-code":
-            self.handle_verify_login_code()
+        if self.path == "/api/auth/reset-password":
+            self.handle_reset_password()
             return
         if self.path == "/api/auth/logout":
             self.handle_logout()
@@ -506,8 +530,10 @@ class ShareHandler(BaseHTTPRequestHandler):
             "verified_at": None,
             "signup_code_hash": hash_code(email, code),
             "signup_code_expires_at": now() + VERIFY_CODE_TTL_SECONDS,
-            "login_code_hash": None,
-            "login_code_expires_at": None,
+            "signup_code_sent_at": now(),
+            "reset_code_hash": None,
+            "reset_code_expires_at": None,
+            "reset_code_sent_at": None,
         }
         try:
             send_email_code(email, "Verify your Quick Share account", "Finish your signup", code)
@@ -525,6 +551,7 @@ class ShareHandler(BaseHTTPRequestHandler):
                 "requires_verification": True,
                 "email": email,
                 "message": "Verification code sent. Enter it to finish signup.",
+                "cooldown_seconds": VERIFY_RESEND_COOLDOWN_SECONDS,
             }
         )
 
@@ -557,6 +584,7 @@ class ShareHandler(BaseHTTPRequestHandler):
         user["verified_at"] = now()
         user["signup_code_hash"] = None
         user["signup_code_expires_at"] = None
+        user["signup_code_sent_at"] = None
         save_users(users)
         self.send_response(200)
         self.set_user_cookie(user)
@@ -566,16 +594,54 @@ class ShareHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(payload)
 
+    def handle_resend_signup_code(self) -> None:
+        try:
+            fields = self.read_form()
+        except ValueError as exc:
+            self.send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+            return
+        email = normalize_email(str(fields.get("email") or ""))
+        users = load_users()
+        user = next((item for item in users.values() if normalize_email(item.get("email", "")) == email), None)
+        if not user:
+            self.send_json({"error": "No pending signup found for that email"}, HTTPStatus.NOT_FOUND)
+            return
+        if user.get("verified_at"):
+            self.send_json({"error": "That account is already verified"}, HTTPStatus.CONFLICT)
+            return
+        retry_after = seconds_until_retry(user.get("signup_code_sent_at"))
+        if retry_after:
+            self.send_json(
+                {"error": f"Please wait {retry_after} seconds before sending another code.", "retry_after": retry_after},
+                HTTPStatus.TOO_MANY_REQUESTS,
+            )
+            return
+        code = new_code()
+        user["signup_code_hash"] = hash_code(email, code)
+        user["signup_code_expires_at"] = now() + VERIFY_CODE_TTL_SECONDS
+        user["signup_code_sent_at"] = now()
+        save_users(users)
+        try:
+            send_email_code(email, "Verify your Quick Share account", "Finish your signup", code)
+        except RuntimeError as exc:
+            self.send_json({"error": str(exc)}, HTTPStatus.SERVICE_UNAVAILABLE)
+            return
+        except OSError as exc:
+            self.send_json({"error": f"Could not send verification email: {exc}"}, HTTPStatus.BAD_GATEWAY)
+            return
+        self.send_json({"ok": True, "message": "Verification code sent.", "cooldown_seconds": VERIFY_RESEND_COOLDOWN_SECONDS})
+
     def handle_login(self) -> None:
         try:
             fields = self.read_form()
         except ValueError as exc:
             self.send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
             return
-        username = normalize_username(str(fields.get("username") or ""))
+        identifier = str(fields.get("username") or "").strip()
         password = str(fields.get("password") or "")
+        remember = str(fields.get("remember_me") or "").lower() == "true"
         users = load_users()
-        user = next((item for item in users.values() if normalize_username(item["username"]) == username), None)
+        user = find_user_by_identifier(users, identifier)
         if not user:
             self.send_json({"error": "Unknown username or password"}, HTTPStatus.UNAUTHORIZED)
             return
@@ -587,14 +653,14 @@ class ShareHandler(BaseHTTPRequestHandler):
             self.send_json({"error": "Unknown username or password"}, HTTPStatus.UNAUTHORIZED)
             return
         self.send_response(200)
-        self.set_user_cookie(user)
+        self.set_user_cookie(user, remember=remember)
         payload = json.dumps({"ok": True, "user": {"id": user["id"], "username": user["username"], "email": user.get("email", "")}}).encode("utf-8")
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(payload)))
         self.end_headers()
         self.wfile.write(payload)
 
-    def handle_send_login_code(self) -> None:
+    def handle_send_password_reset(self) -> None:
         try:
             fields = self.read_form()
         except ValueError as exc:
@@ -609,21 +675,36 @@ class ShareHandler(BaseHTTPRequestHandler):
         if not user or not user.get("verified_at"):
             self.send_json({"error": "No verified account found for that email"}, HTTPStatus.NOT_FOUND)
             return
+        retry_after = seconds_until_retry(user.get("reset_code_sent_at"))
+        if retry_after:
+            self.send_json(
+                {"error": f"Please wait {retry_after} seconds before sending another code.", "retry_after": retry_after},
+                HTTPStatus.TOO_MANY_REQUESTS,
+            )
+            return
         code = new_code()
-        user["login_code_hash"] = hash_code(email, code)
-        user["login_code_expires_at"] = now() + VERIFY_CODE_TTL_SECONDS
+        user["reset_code_hash"] = hash_code(email, code)
+        user["reset_code_expires_at"] = now() + VERIFY_CODE_TTL_SECONDS
+        user["reset_code_sent_at"] = now()
         save_users(users)
         try:
-            send_email_code(email, "Your Quick Share sign-in code", "Use this code to sign in", code)
+            send_email_code(email, "Quick Share password reset", "Use this code to reset your password", code)
         except RuntimeError as exc:
             self.send_json({"error": str(exc)}, HTTPStatus.SERVICE_UNAVAILABLE)
             return
         except OSError as exc:
-            self.send_json({"error": f"Could not send login email: {exc}"}, HTTPStatus.BAD_GATEWAY)
+            self.send_json({"error": f"Could not send reset email: {exc}"}, HTTPStatus.BAD_GATEWAY)
             return
-        self.send_json({"ok": True, "message": "Sign-in code sent", "email": email})
+        self.send_json(
+            {
+                "ok": True,
+                "message": "Reset code sent",
+                "email": email,
+                "cooldown_seconds": VERIFY_RESEND_COOLDOWN_SECONDS,
+            }
+        )
 
-    def handle_verify_login_code(self) -> None:
+    def handle_reset_password(self) -> None:
         try:
             fields = self.read_form()
         except ValueError as exc:
@@ -631,31 +712,33 @@ class ShareHandler(BaseHTTPRequestHandler):
             return
         email = normalize_email(str(fields.get("email") or ""))
         code = str(fields.get("code") or "").strip()
+        password = str(fields.get("password") or "")
         users = load_users()
         user = next((item for item in users.values() if normalize_email(item.get("email", "")) == email), None)
         if not user or not user.get("verified_at"):
             self.send_json({"error": "No verified account found for that email"}, HTTPStatus.NOT_FOUND)
             return
         if not code:
-            self.send_json({"error": "Enter the sign-in code"}, HTTPStatus.BAD_REQUEST)
+            self.send_json({"error": "Enter the reset code"}, HTTPStatus.BAD_REQUEST)
             return
-        if (user.get("login_code_expires_at") or 0) < now():
-            self.send_json({"error": "That sign-in code expired. Request a new one."}, HTTPStatus.UNAUTHORIZED)
+        if len(password) < 4:
+            self.send_json({"error": "Password needs at least 4 characters"}, HTTPStatus.BAD_REQUEST)
             return
-        expected = user.get("login_code_hash") or ""
+        if (user.get("reset_code_expires_at") or 0) < now():
+            self.send_json({"error": "That reset code expired. Request a new one."}, HTTPStatus.UNAUTHORIZED)
+            return
+        expected = user.get("reset_code_hash") or ""
         if not hmac.compare_digest(expected, hash_code(email, code)):
-            self.send_json({"error": "Wrong sign-in code"}, HTTPStatus.UNAUTHORIZED)
+            self.send_json({"error": "Wrong reset code"}, HTTPStatus.UNAUTHORIZED)
             return
-        user["login_code_hash"] = None
-        user["login_code_expires_at"] = None
+        salt = secrets.token_hex(16)
+        user["password_salt"] = salt
+        user["password_hash"] = hash_password(password, salt)
+        user["reset_code_hash"] = None
+        user["reset_code_expires_at"] = None
+        user["reset_code_sent_at"] = None
         save_users(users)
-        self.send_response(200)
-        self.set_user_cookie(user)
-        payload = json.dumps({"ok": True, "user": {"id": user["id"], "username": user["username"], "email": user.get("email", "")}}).encode("utf-8")
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(payload)))
-        self.end_headers()
-        self.wfile.write(payload)
+        self.send_json({"ok": True, "message": "Password reset complete"})
 
     def handle_logout(self) -> None:
         self.send_response(200)
