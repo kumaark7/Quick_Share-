@@ -204,11 +204,25 @@ filePanel.addEventListener("drop", (event) => {
 async function loadMeta() {
   const response = await fetch("/api/meta");
   const meta = await response.json();
+  const host = window.location.hostname;
+  const protocol = window.location.protocol;
+  const isLocalHost = ["localhost", "127.0.0.1"].includes(host);
+  const isPrivateIp = /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.)/.test(host);
+
+  addressBar.innerHTML = "";
+
+  if (!isLocalHost && !isPrivateIp) {
+    addressBar.classList.remove("hidden");
+    addressBar.innerHTML = `<span>Open on another device: ${window.location.origin}</span>`;
+    return;
+  }
+
   const lan = meta.addresses.filter((address) => address !== "127.0.0.1");
   if (!lan.length) return;
+
   addressBar.classList.remove("hidden");
   addressBar.innerHTML = lan
-    .map((address) => `<span>Open on another device: http://${address}:${meta.port}</span>`)
+    .map((address) => `<span>Open on another device: ${protocol}//${address}${window.location.port ? `:${window.location.port}` : ""}</span>`)
     .join("");
 }
 

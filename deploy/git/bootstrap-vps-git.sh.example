@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd ~/Projects
+
+if [ -d quick-share ] && [ ! -d quick-share/.git ]; then
+  mv quick-share quick-share_pre_git_backup
+fi
+
+if [ ! -d quick-share/.git ]; then
+  git clone https://github.com/kumaark7/Quick_Share-.git quick-share
+fi
+
+mkdir -p ~/Projects/quick-share/storage/files
+
+if [ -d ~/Projects/quick-share_pre_git_backup/storage ]; then
+  cp -a ~/Projects/quick-share_pre_git_backup/storage/. ~/Projects/quick-share/storage/
+fi
+
+sudo systemctl restart quick-share
+sudo systemctl status quick-share --no-pager

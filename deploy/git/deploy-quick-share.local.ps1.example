@@ -1,0 +1,17 @@
+$ErrorActionPreference = "Stop"
+
+$RepoPath = "C:\Users\hemachandiran\Documents\Personal Shares"
+$Branch = "main"
+$CommitMessage = "Update Quick Share"
+$Server = "ubuntu@144.24.158.211"
+$KeyPath = "D:\Kishore\ssh-key-2026-06-07.key"
+$RemoteAppPath = "/home/ubuntu/Projects/quick-share"
+
+Set-Location $RepoPath
+
+git status
+git add .
+git commit -m $CommitMessage
+git push origin $Branch
+
+ssh -i $KeyPath $Server "cd $RemoteAppPath && git pull --ff-only origin $Branch && sudo systemctl restart quick-share && sudo systemctl status quick-share --no-pager"
