@@ -16,12 +16,14 @@ const logoutBtn = document.querySelector("#logoutBtn");
 const forgotPasswordBtn = document.querySelector("#forgotPasswordBtn");
 const authHelper = document.querySelector("#authHelper");
 const authStatus = document.querySelector("#authStatus");
+const authAdminLink = document.querySelector("#authAdminLink");
 const socialButtons = document.querySelectorAll(".social-btn");
 const socialBlock = document.querySelector(".social-block");
 const profilePanel = document.querySelector("#profilePanel");
 const profileUsername = document.querySelector("#profileUsername");
 const profileEmail = document.querySelector("#profileEmail");
 const profileLogoutBtn = document.querySelector("#profileLogoutBtn");
+const profileAdminLink = document.querySelector("#profileAdminLink");
 const passwordToggles = document.querySelectorAll("[data-toggle-password]");
 
 const authModal = document.querySelector("#authModal");
@@ -142,6 +144,9 @@ function openModal(mode, email = "") {
 
 function updateAuthUI() {
   const signedIn = Boolean(currentUser);
+  const isAdmin = Boolean(currentUser && currentUser.is_admin);
+  authAdminLink.classList.toggle("hidden", !isAdmin);
+  profileAdminLink.classList.toggle("hidden", !isAdmin);
   authTabs.forEach((tab) => tab.classList.toggle("hidden", signedIn));
   authForm.classList.toggle("hidden", signedIn);
   profilePanel.classList.toggle("hidden", !signedIn);

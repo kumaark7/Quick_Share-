@@ -11,7 +11,10 @@
     <section class="page-card">
       <nav class="page-nav">
         <a class="back" href="/">Back Home</a>
-        <a class="ghost" href="/history.html">My History</a>
+        <div class="nav-actions">
+          <a class="ghost" href="/history.html">My History</a>
+          <a id="authAdminLink" class="ghost hidden" href="/admin">Admin</a>
+        </div>
       </nav>
 
       <div class="page-copy">
@@ -83,6 +86,7 @@
           <div class="auth-actions">
             <a class="button" href="/">Go Home</a>
             <a class="ghost" href="/history.html">Open My History</a>
+            <a id="profileAdminLink" class="ghost hidden" href="/admin">Admin</a>
             <button id="profileLogoutBtn" class="ghost" type="button">Log out</button>
           </div>
         </section>

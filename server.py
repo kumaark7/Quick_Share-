@@ -35,6 +35,7 @@ SESSION_COOKIE = "quickshare_session"
 CLEANUP_INTERVAL_SECONDS = int(os.environ.get("QUICK_SHARE_CLEANUP_INTERVAL", "60"))
 VERIFY_CODE_TTL_SECONDS = int(os.environ.get("QUICK_SHARE_VERIFY_CODE_TTL", "900"))
 VERIFY_RESEND_COOLDOWN_SECONDS = int(os.environ.get("QUICK_SHARE_VERIFY_RESEND_COOLDOWN", "120"))
+ADMIN_EMAIL = os.environ.get("QUICK_SHARE_ADMIN_EMAIL", "kumaarkishore11@gmail.com").strip().lower()
 
 
 def now() -> int:
@@ -292,6 +293,10 @@ def build_view_stats(share: dict) -> dict:
     }
 
 
+def format_email_admin(email: str) -> bool:
+    return normalize_email(email) == ADMIN_EMAIL
+
+
 def find_user_by_identifier(users: dict[str, dict], identifier: str) -> dict | None:
     normalized = normalize_username(identifier)
     email = normalize_email(identifier)
@@ -446,6 +451,10 @@ class ShareHandler(BaseHTTPRequestHandler):
         users = load_users()
         return users.get(user_id)
 
+    def is_admin(self, user: dict | None = None) -> bool:
+        viewer = user or self.current_user()
+        return bool(viewer and format_email_admin(str(viewer.get("email", ""))))
+
     def set_user_cookie(self, user: dict, remember: bool = False) -> None:
         token = f"{user['id']}:{user_signature(user['id'])}"
         cookie = f"{SESSION_COOKIE}={token}; Path=/; HttpOnly; SameSite=Lax"
@@ -540,8 +549,14 @@ class ShareHandler(BaseHTTPRequestHandler):
         if path == "/api/me":
             self.handle_me()
             return
+        if path == "/api/admin/users":
+            self.handle_admin_users()
+            return
         if path.startswith("/api/share/"):
             self.handle_share_api(path.removeprefix("/api/share/"))
+            return
+        if path in ("/admin", "/admin.html"):
+            self.handle_admin_page()
             return
         if path.startswith("/s/"):
             source = parse_qs(parsed.query).get("src", ["link"])[0]
@@ -595,6 +610,9 @@ class ShareHandler(BaseHTTPRequestHandler):
         self.handle_create_share()
 
     def do_DELETE(self) -> None:
+        if self.path.startswith("/api/admin/users/"):
+            self.handle_admin_delete_user(self.path.removeprefix("/api/admin/users/").strip("/"))
+            return
         if not self.path.startswith("/api/share/"):
             self.send_json({"error": "Not found"}, HTTPStatus.NOT_FOUND)
             return
@@ -626,7 +644,17 @@ class ShareHandler(BaseHTTPRequestHandler):
         if not user:
             self.send_json({"authenticated": False})
             return
-        self.send_json({"authenticated": True, "user": {"id": user["id"], "username": user["username"], "email": user.get("email", "")}})
+        self.send_json(
+            {
+                "authenticated": True,
+                "user": {
+                    "id": user["id"],
+                    "username": user["username"],
+                    "email": user.get("email", ""),
+                    "is_admin": self.is_admin(user),
+                },
+            }
+        )
 
     def public_share_list(self) -> list[dict]:
         shares = load_shares()
@@ -696,6 +724,84 @@ class ShareHandler(BaseHTTPRequestHandler):
                 "share": self.serialize_share(duplicated, include_text=include_text),
             }
         )
+
+    def handle_admin_page(self) -> None:
+        if not self.current_user():
+            self.redirect("/auth.html")
+            return
+        if not self.is_admin():
+            self.send_text(render_admin_denied_page(), HTTPStatus.FORBIDDEN, "text/html; charset=utf-8")
+            return
+        self.serve_static("/admin.html")
+
+    def handle_admin_users(self) -> None:
+        user = self.current_user()
+        if not user:
+            self.send_json({"error": "Sign in first"}, HTTPStatus.UNAUTHORIZED)
+            return
+        if not self.is_admin(user):
+            self.send_json({"error": "Admin access only"}, HTTPStatus.FORBIDDEN)
+            return
+        users = load_users()
+        shares = load_shares()
+        items = []
+        for member in sorted(users.values(), key=lambda item: item.get("created_at", 0), reverse=True):
+            member_shares = [share for share in shares.values() if share.get("owner_user_id") == member["id"]]
+            storage_used = sum(int(share.get("size") or 0) for share in member_shares)
+            latest_events = [
+                int(event.get("opened_at") or 0)
+                for share in member_shares
+                for event in (share.get("open_events") or [])
+            ]
+            last_active = max(
+                [int(member.get("verified_at") or 0), int(member.get("created_at") or 0)]
+                + [int(share.get("created_at") or 0) for share in member_shares]
+                + latest_events
+            )
+            items.append(
+                {
+                    "id": member["id"],
+                    "email": member.get("email", ""),
+                    "username": member.get("username", ""),
+                    "status": "Active" if member.get("verified_at") else "Pending",
+                    "role": "Admin" if format_email_admin(str(member.get("email", ""))) else "User",
+                    "joined_at": int(member.get("created_at") or 0),
+                    "last_active_at": last_active,
+                    "storage_used": storage_used,
+                    "share_count": len(member_shares),
+                }
+            )
+        self.send_json(items)
+
+    def handle_admin_delete_user(self, user_id: str) -> None:
+        user = self.current_user()
+        if not user:
+            self.send_json({"error": "Sign in first"}, HTTPStatus.UNAUTHORIZED)
+            return
+        if not self.is_admin(user):
+            self.send_json({"error": "Admin access only"}, HTTPStatus.FORBIDDEN)
+            return
+        users = load_users()
+        target = users.get(user_id)
+        if not target:
+            self.send_json({"error": "User not found"}, HTTPStatus.NOT_FOUND)
+            return
+        if format_email_admin(str(target.get("email", ""))):
+            self.send_json({"error": "The main admin account cannot be deleted"}, HTTPStatus.FORBIDDEN)
+            return
+        shares = load_shares()
+        for share_id, share in list(shares.items()):
+            if share.get("owner_user_id") != user_id:
+                continue
+            if share.get("kind") == "file":
+                path = FILES / f"{share_id}.bin"
+                if path.exists():
+                    path.unlink()
+            del shares[share_id]
+        save_shares(shares)
+        del users[user_id]
+        save_users(users)
+        self.send_json({"ok": True, "message": "User deleted"})
 
     def handle_signup(self) -> None:
         try:
@@ -1163,6 +1269,10 @@ class ShareHandler(BaseHTTPRequestHandler):
 
 def render_missing_page() -> str:
     return """<!doctype html><html><head><meta charset="utf-8"><title>Share missing</title><link rel="stylesheet" href="/styles.css"></head><body><main class="single"><h1>Share expired or missing</h1><p>This temporary link is no longer available.</p><a class="button" href="/">Create a new share</a></main></body></html>"""
+
+
+def render_admin_denied_page() -> str:
+    return """<!doctype html><html><head><meta charset="utf-8"><title>Admin only</title><link rel="stylesheet" href="/styles.css"></head><body><main class="single"><h1>Admin access only</h1><p>This page is only available to the admin account.</p><a class="button" href="/">Back Home</a></main></body></html>"""
 
 
 def render_unlock_page(share: dict, error: str = "", next_url: str | None = None) -> str:

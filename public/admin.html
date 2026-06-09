@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Admin | Quick Share</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main class="page-shell admin-shell">
+    <section class="page-card admin-card">
+      <nav class="page-nav">
+        <a class="back" href="/">Back Home</a>
+        <div class="nav-actions">
+          <a class="ghost" href="/history.html">My History</a>
+          <a class="ghost" href="/auth.html">Account</a>
+        </div>
+      </nav>
+
+      <div class="page-copy admin-copy">
+        <h1>User Management</h1>
+        <p>Manage all users in one place. Review access, storage usage, and recent activity across your Quick Share site.</p>
+      </div>
+
+      <section class="admin-panel">
+        <div class="admin-toolbar">
+          <label class="admin-search">
+            <input id="adminSearch" type="search" placeholder="Search by email or username">
+          </label>
+          <div class="admin-toolbar-actions">
+            <button id="adminRefreshBtn" class="ghost" type="button">Refresh</button>
+            <button id="adminExportBtn" class="ghost" type="button">Export</button>
+          </div>
+        </div>
+
+        <p id="adminStatus" class="status"></p>
+
+        <div class="admin-table-wrap">
+          <table class="admin-table">
+            <thead>
+              <tr>
+                <th>Email</th>
+                <th>Username</th>
+                <th>Status</th>
+                <th>Role</th>
+                <th>Joined</th>
+                <th>Last Active</th>
+                <th>Storage Used</th>
+                <th>Shares</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="adminTableBody"></tbody>
+          </table>
+        </div>
+      </section>
+    </section>
+  </main>
+  <div id="toast" class="toast"></div>
+  <script src="/admin.js"></script>
+</body>
+</html>
