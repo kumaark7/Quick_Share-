@@ -19,7 +19,7 @@ from http import HTTPStatus
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import unquote, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 
 ROOT = Path(__file__).parent.resolve()
@@ -224,6 +224,74 @@ def new_code(length: int = 6) -> str:
     return "".join(secrets.choice(digits) for _ in range(length))
 
 
+def detect_device_label(user_agent: str) -> str:
+    ua = user_agent.lower()
+    if "iphone" in ua:
+        return "iPhone"
+    if "ipad" in ua:
+        return "iPad"
+    if "android" in ua and "mobile" in ua:
+        return "Android phone"
+    if "android" in ua:
+        return "Android tablet"
+    if "windows" in ua:
+        return "Windows"
+    if "mac os x" in ua or "macintosh" in ua:
+        return "Mac"
+    if "linux" in ua:
+        return "Linux"
+    return "Unknown device"
+
+
+def detect_browser_label(user_agent: str) -> str:
+    ua = user_agent.lower()
+    if "edg/" in ua:
+        return "Edge"
+    if "chrome/" in ua and "edg/" not in ua:
+        return "Chrome"
+    if "firefox/" in ua:
+        return "Firefox"
+    if "safari/" in ua and "chrome/" not in ua:
+        return "Safari"
+    if "samsungbrowser/" in ua:
+        return "Samsung Internet"
+    return "Browser"
+
+
+def build_view_stats(share: dict) -> dict:
+    events = share.get("open_events") or []
+    total_opens = len(events)
+    qr_opens = sum(1 for event in events if event.get("source") == "qr")
+    link_opens = total_opens - qr_opens
+    device_map: dict[str, int] = {}
+    for event in events:
+        label = str(event.get("device") or "Unknown device")
+        device_map[label] = device_map.get(label, 0) + 1
+    top_devices = [
+        {"label": label, "count": count}
+        for label, count in sorted(device_map.items(), key=lambda item: (-item[1], item[0]))[:4]
+    ]
+    recent = []
+    for event in events[-5:][::-1]:
+        recent.append(
+            {
+                "device": event.get("device") or "Unknown device",
+                "browser": event.get("browser") or "Browser",
+                "source": event.get("source") or "link",
+                "opened_at": event.get("opened_at") or 0,
+            }
+        )
+    unique_devices = len({f"{event.get('device')}|{event.get('browser')}" for event in events})
+    return {
+        "total_opens": total_opens,
+        "qr_opens": qr_opens,
+        "link_opens": link_opens,
+        "unique_devices": unique_devices,
+        "top_devices": top_devices,
+        "recent": recent,
+    }
+
+
 def find_user_by_identifier(users: dict[str, dict], identifier: str) -> dict | None:
     normalized = normalize_username(identifier)
     email = normalize_email(identifier)
@@ -267,14 +335,35 @@ def send_email_code(email: str, subject: str, heading: str, code: str) -> None:
     if not settings:
         raise RuntimeError("Email sending is not configured on this server yet")
 
+    from_email = str(settings["from_email"])
     message = EmailMessage()
-    message["From"] = str(settings["from_email"])
+    message["From"] = f"Quick Share <{from_email}>"
     message["To"] = email
     message["Subject"] = subject
     message.set_content(
         f"{heading}\n\n"
-        f"Your Quick Share code is: {code}\n\n"
-        f"This code expires in {VERIFY_CODE_TTL_SECONDS // 60} minutes."
+        f"You requested a Quick Share verification code.\n\n"
+        f"Code: {code}\n\n"
+        f"This code expires in {VERIFY_CODE_TTL_SECONDS // 60} minutes.\n"
+        f"If you did not request this, you can ignore this email."
+    )
+    message.add_alternative(
+        f"""
+        <html>
+          <body style="font-family:Segoe UI,Arial,sans-serif;background:#07111f;color:#eff7ff;padding:24px;">
+            <div style="max-width:560px;margin:0 auto;background:#0d1d32;border:1px solid rgba(148,180,216,0.18);border-radius:20px;padding:28px;">
+              <h2 style="margin:0 0 12px;color:#eff7ff;">{html.escape(heading)}</h2>
+              <p style="margin:0 0 18px;color:#cddcf0;">You requested a Quick Share verification code.</p>
+              <div style="display:inline-block;padding:14px 18px;border-radius:14px;background:linear-gradient(135deg,#49a6ff,#64f4c4);color:#06111e;font-size:28px;font-weight:800;letter-spacing:0.12em;">
+                {html.escape(code)}
+              </div>
+              <p style="margin:18px 0 0;color:#cddcf0;">This code expires in {VERIFY_CODE_TTL_SECONDS // 60} minutes.</p>
+              <p style="margin:10px 0 0;color:#9eb3c9;">If you did not request this, you can ignore this email.</p>
+            </div>
+          </body>
+        </html>
+        """,
+        subtype="html",
     )
 
     with smtplib.SMTP(str(settings["host"]), int(settings["port"]), timeout=20) as smtp:
@@ -406,7 +495,26 @@ class ShareHandler(BaseHTTPRequestHandler):
         item["download_url"] = f"{base}/download/{share['id']}"
         if share.get("kind") == "text" and include_text:
             item["text"] = share.get("text", "")
+        if share.get("owner_user_id"):
+            item["view_stats"] = build_view_stats(share)
         return item
+
+    def track_share_open(self, share: dict, source: str = "link") -> None:
+        shares = load_shares()
+        stored_share = shares.get(share["id"])
+        if not stored_share:
+            return
+        user_agent = self.headers.get("User-Agent", "").strip()
+        event = {
+            "opened_at": now(),
+            "source": "qr" if source == "qr" else "link",
+            "device": detect_device_label(user_agent),
+            "browser": detect_browser_label(user_agent),
+        }
+        events = list(stored_share.get("open_events") or [])
+        events.append(event)
+        stored_share["open_events"] = events[-60:]
+        save_shares(shares)
 
     def get_share(self, share_id: str) -> dict | None:
         shares = load_shares()
@@ -436,13 +544,16 @@ class ShareHandler(BaseHTTPRequestHandler):
             self.handle_share_api(path.removeprefix("/api/share/"))
             return
         if path.startswith("/s/"):
-            self.handle_share_page(path.removeprefix("/s/"))
+            source = parse_qs(parsed.query).get("src", ["link"])[0]
+            self.handle_share_page(path.removeprefix("/s/"), source=source)
             return
         if path.startswith("/raw/"):
-            self.handle_raw(path.removeprefix("/raw/"))
+            source = parse_qs(parsed.query).get("src", ["link"])[0]
+            self.handle_raw(path.removeprefix("/raw/"), source=source)
             return
         if path.startswith("/download/"):
-            self.handle_download(path.removeprefix("/download/"))
+            source = parse_qs(parsed.query).get("src", ["link"])[0]
+            self.handle_download(path.removeprefix("/download/"), source=source)
             return
         self.serve_static(path)
 
@@ -474,6 +585,9 @@ class ShareHandler(BaseHTTPRequestHandler):
             return
         if self.path == "/api/auth/logout":
             self.handle_logout()
+            return
+        if self.path.startswith("/api/share-again/"):
+            self.handle_share_again(self.path.removeprefix("/api/share-again/"))
             return
         if self.path != "/api/share":
             self.send_json({"error": "Not found"}, HTTPStatus.NOT_FOUND)
@@ -535,6 +649,53 @@ class ShareHandler(BaseHTTPRequestHandler):
             if share.get("owner_user_id") == user["id"]
         ]
         self.send_json(items)
+
+    def handle_share_again(self, share_id: str) -> None:
+        user = self.current_user()
+        if not user:
+            self.send_json({"error": "Sign in first"}, HTTPStatus.UNAUTHORIZED)
+            return
+        shares = load_shares()
+        original = shares.get(share_id.strip("/"))
+        if not original:
+            self.send_json({"error": "Share not found or expired"}, HTTPStatus.NOT_FOUND)
+            return
+        if original.get("owner_user_id") != user.get("id"):
+            self.send_json({"error": "That share belongs to another account"}, HTTPStatus.FORBIDDEN)
+            return
+        new_share_id = new_id(shares)
+        duplicated = {
+            "id": new_share_id,
+            "kind": original["kind"],
+            "size": original.get("size", 0),
+            "created_at": now(),
+            "expires_at": None,
+            "password_salt": original.get("password_salt"),
+            "password_hash": original.get("password_hash"),
+            "owner_user_id": user["id"],
+            "open_events": [],
+        }
+        if original["kind"] == "text":
+            duplicated["text"] = original.get("text", "")
+        else:
+            duplicated["filename"] = original.get("filename", "download.bin")
+            duplicated["content_type"] = original.get("content_type") or "application/octet-stream"
+            source_path = FILES / f"{original['id']}.bin"
+            target_path = FILES / f"{new_share_id}.bin"
+            if not source_path.exists():
+                self.send_json({"error": "Original file is missing"}, HTTPStatus.NOT_FOUND)
+                return
+            shutil.copyfile(source_path, target_path)
+        shares[new_share_id] = duplicated
+        save_shares(shares)
+        include_text = duplicated["kind"] == "text" and (not duplicated.get("password_hash") or self.is_owner(duplicated, user))
+        self.send_json(
+            {
+                "ok": True,
+                "message": "New share link created from your saved item.",
+                "share": self.serialize_share(duplicated, include_text=include_text),
+            }
+        )
 
     def handle_signup(self) -> None:
         try:
@@ -873,6 +1034,7 @@ class ShareHandler(BaseHTTPRequestHandler):
                 "password_salt": password_salt,
                 "password_hash": password_hash,
                 "owner_user_id": owner_user_id,
+                "open_events": [],
             }
         else:
             text_value = str(fields.get("text") or "").strip()
@@ -889,6 +1051,7 @@ class ShareHandler(BaseHTTPRequestHandler):
                 "password_salt": password_salt,
                 "password_hash": password_hash,
                 "owner_user_id": owner_user_id,
+                "open_events": [],
             }
 
         save_shares(shares)
@@ -906,7 +1069,7 @@ class ShareHandler(BaseHTTPRequestHandler):
         include_text = share.get("kind") == "text"
         self.send_json(self.serialize_share(share, include_text=include_text))
 
-    def handle_raw(self, share_id: str) -> None:
+    def handle_raw(self, share_id: str, source: str = "link") -> None:
         share = self.get_share(share_id)
         if not share:
             self.send_text("Share not found or expired", HTTPStatus.NOT_FOUND)
@@ -914,12 +1077,13 @@ class ShareHandler(BaseHTTPRequestHandler):
         if not self.is_authorized(share):
             self.redirect(f"/s/{share['id']}")
             return
+        self.track_share_open(share, source)
         if share["kind"] == "text":
             self.send_text(share.get("text", ""))
             return
-        self.handle_download(share_id, inline=True)
+        self.handle_download(share_id, inline=True, source=source)
 
-    def handle_download(self, share_id: str, inline: bool = False) -> None:
+    def handle_download(self, share_id: str, inline: bool = False, source: str = "link") -> None:
         share = self.get_share(share_id)
         if not share or share["kind"] != "file":
             self.send_text("File not found or expired", HTTPStatus.NOT_FOUND)
@@ -927,6 +1091,7 @@ class ShareHandler(BaseHTTPRequestHandler):
         if not self.is_authorized(share):
             self.redirect(f"/s/{share['id']}")
             return
+        self.track_share_open(share, source)
         path = FILES / f"{share['id']}.bin"
         if not path.exists():
             self.send_text("File missing", HTTPStatus.NOT_FOUND)
@@ -940,14 +1105,16 @@ class ShareHandler(BaseHTTPRequestHandler):
         with path.open("rb") as fh:
             shutil.copyfileobj(fh, self.wfile)
 
-    def handle_share_page(self, share_id: str) -> None:
+    def handle_share_page(self, share_id: str, source: str = "link") -> None:
         share = self.get_share(share_id)
         if not share:
             self.send_text(render_missing_page(), HTTPStatus.NOT_FOUND, "text/html; charset=utf-8")
             return
         if not self.is_authorized(share):
-            self.send_text(render_unlock_page(self.serialize_share(share)), content_type="text/html; charset=utf-8")
+            next_url = f"/s/{share['id']}?src={'qr' if source == 'qr' else 'link'}"
+            self.send_text(render_unlock_page(self.serialize_share(share), next_url=next_url), content_type="text/html; charset=utf-8")
             return
+        self.track_share_open(share, source)
         include_text = share.get("kind") == "text"
         self.send_text(render_share_page(self.serialize_share(share, include_text=include_text)), content_type="text/html; charset=utf-8")
 
@@ -998,9 +1165,10 @@ def render_missing_page() -> str:
     return """<!doctype html><html><head><meta charset="utf-8"><title>Share missing</title><link rel="stylesheet" href="/styles.css"></head><body><main class="single"><h1>Share expired or missing</h1><p>This temporary link is no longer available.</p><a class="button" href="/">Create a new share</a></main></body></html>"""
 
 
-def render_unlock_page(share: dict, error: str = "") -> str:
+def render_unlock_page(share: dict, error: str = "", next_url: str | None = None) -> str:
     escaped_id = html.escape(share["id"])
     escaped_error = html.escape(error)
+    escaped_next = html.escape(next_url or f"/s/{share['id']}")
     label = "text share" if share["kind"] == "text" else "file share"
     filename = html.escape(share.get("filename") or "")
     details = f"<p>{filename}</p>" if filename else ""
@@ -1021,7 +1189,7 @@ def render_unlock_page(share: dict, error: str = "") -> str:
       <h2>Enter password to open this share</h2>
       {details}
       <form method="post" action="/unlock/{escaped_id}" class="unlock-form" enctype="multipart/form-data">
-        <input type="hidden" name="next" value="/s/{escaped_id}">
+        <input type="hidden" name="next" value="{escaped_next}">
         <label class="field">
           <span>Password</span>
           <input type="password" name="password" placeholder="Enter share password" required autofocus>

@@ -10,7 +10,6 @@ const passwordInput = document.querySelector("#passwordInput");
 const saveRow = document.querySelector("#saveRow");
 const saveToProfileInput = document.querySelector("#saveToProfileInput");
 const statusLine = document.querySelector("#status");
-const shareList = document.querySelector("#shareList");
 const toast = document.querySelector("#toast");
 const refreshBtn = document.querySelector("#refreshBtn");
 const addressBar = document.querySelector("#addressBar");
@@ -88,66 +87,8 @@ function renderResult(url) {
   resultCard.classList.remove("hidden");
   resultLink.href = url;
   resultLink.textContent = url;
-  qrImage.src = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(url)}`;
+  qrImage.src = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(`${url}?src=qr`)}`;
   qrImage.loading = "lazy";
-}
-
-function shareRow(share) {
-  const row = document.createElement("article");
-  row.className = "share-row";
-  const title = share.kind === "file" ? share.filename : (share.text || "").slice(0, 60) || "Text share";
-  const copyTextAction = share.kind === "text" && share.text
-    ? "<button type=\"button\" data-copy-text>Copy text</button>"
-    : "";
-  row.innerHTML = `
-    <div class="share-main">
-      <div class="share-title"></div>
-      <div class="chips">
-        <span>${share.kind}</span>
-        <span>${formatBytes(share.size)}</span>
-        <span>${formatExpiry(share.expires_at)}</span>
-        ${share.password_protected ? "<span>locked</span>" : ""}
-      </div>
-    </div>
-    <div class="row-actions">
-      <a href="${share.url}" target="_blank" rel="noreferrer">Open</a>
-      <button type="button" data-copy-link>Copy link</button>
-      ${share.kind === "file" ? "<a data-open-file>Download</a>" : copyTextAction}
-      <button type="button" data-delete>Remove</button>
-    </div>
-  `;
-  row.querySelector(".share-title").textContent = title;
-  row.querySelector("[data-copy-link]").addEventListener("click", () => copy(share.url, "Link"));
-  const copyTextButton = row.querySelector("[data-copy-text]");
-  if (copyTextButton) copyTextButton.addEventListener("click", () => copy(share.text, "Text"));
-  const fileLink = row.querySelector("[data-open-file]");
-  if (fileLink) fileLink.href = share.download_url;
-  row.querySelector("[data-delete]").addEventListener("click", async () => {
-    const response = await fetch(`/api/share/${share.id}`, { method: "DELETE" });
-    const result = await response.json();
-    if (!response.ok) {
-      showToast(result.error || "Could not delete share");
-      return;
-    }
-    showToast("Share deleted");
-    loadShares();
-  });
-  return row;
-}
-
-async function loadShares() {
-  const response = await fetch("/api/shares");
-  const shares = await response.json();
-  shareList.innerHTML = "";
-  if (!response.ok) {
-    shareList.innerHTML = `<div class="empty">${shares.error || "Could not load shares."}</div>`;
-    return;
-  }
-  if (!shares.length) {
-    shareList.innerHTML = `<div class="empty">No public shares yet. Create one and it will appear here.</div>`;
-    return;
-  }
-  shares.forEach((share) => shareList.appendChild(shareRow(share)));
 }
 
 async function loadMe() {
@@ -259,11 +200,10 @@ form.addEventListener("submit", async (event) => {
     fileInput.value = "";
     fileName.textContent = "or drag it here from your desktop";
   }
-  loadShares();
 });
 
-refreshBtn.addEventListener("click", loadShares);
+refreshBtn.addEventListener("click", () => window.location.reload());
 copyResultBtn.addEventListener("click", () => copy(resultLink.href, "Link"));
 
 loadMeta();
-loadMe().then(loadShares);
+loadMe();

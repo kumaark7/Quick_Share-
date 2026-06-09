@@ -225,6 +225,42 @@ h1 {
   gap: 14px;
 }
 
+.profile-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.profile-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.password-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.password-toggle {
+  min-height: 44px;
+  min-width: 74px;
+  border: 1px solid var(--line);
+  border-radius: 15px;
+  padding: 0 14px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--muted);
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.password-toggle:hover {
+  border-color: rgba(148, 180, 216, 0.3);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+}
+
 .checkbox-line {
   display: flex;
   align-items: center;
@@ -689,6 +725,16 @@ input[type="text"] {
   gap: 12px;
 }
 
+.example-list {
+  align-content: start;
+}
+
+.example-copy {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
 .share-row,
 .empty {
   border: 1px solid var(--line);
@@ -711,6 +757,20 @@ input[type="text"] {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-weight: 780;
+}
+
+.share-stats {
+  margin-top: 12px;
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.share-meta-note {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
 }
 
 .chips {
@@ -887,6 +947,10 @@ pre {
   }
 
   .result-card {
+    grid-template-columns: 1fr;
+  }
+
+  .profile-grid {
     grid-template-columns: 1fr;
   }
 

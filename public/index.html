@@ -89,11 +89,45 @@
     <aside class="shares">
       <div class="shares-head">
         <div>
-          <h2>Recent public shares</h2>
-          <p>Quick access list for non-saved shares.</p>
+          <h2>How it works</h2>
+          <p>Private sharing stays private. This side panel only shows examples.</p>
         </div>
       </div>
-      <div id="shareList" class="share-list"></div>
+      <div id="shareList" class="share-list example-list">
+        <article class="share-row">
+          <div class="share-main">
+            <div class="share-title">Example text share</div>
+            <div class="chips">
+              <span>text</span>
+              <span>copy fast</span>
+              <span>private link</span>
+            </div>
+          </div>
+          <p class="example-copy">Paste a note, create a short link, then grab it on another device.</p>
+        </article>
+        <article class="share-row">
+          <div class="share-main">
+            <div class="share-title">Example file share</div>
+            <div class="chips">
+              <span>file</span>
+              <span>qr ready</span>
+              <span>48h guest max</span>
+            </div>
+          </div>
+          <p class="example-copy">Upload once, scan the QR, download, and delete when you are done.</p>
+        </article>
+        <article class="share-row">
+          <div class="share-main">
+            <div class="share-title">Account history</div>
+            <div class="chips">
+              <span>signed in</span>
+              <span>never expire</span>
+              <span>history</span>
+            </div>
+          </div>
+          <p class="example-copy">Signed-in users can keep personal history without exposing real share names here.</p>
+        </article>
+      </div>
     </aside>
   </main>
   <div id="toast" class="toast"></div>

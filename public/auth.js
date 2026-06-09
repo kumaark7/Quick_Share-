@@ -1,4 +1,6 @@
 const authTabs = document.querySelectorAll("[data-auth-mode]");
+const pageTitle = document.querySelector("#pageTitle");
+const pageSubtitle = document.querySelector("#pageSubtitle");
 const authTitle = document.querySelector("#authTitle");
 const authSubtitle = document.querySelector("#authSubtitle");
 const authForm = document.querySelector("#authForm");
@@ -16,6 +18,11 @@ const authHelper = document.querySelector("#authHelper");
 const authStatus = document.querySelector("#authStatus");
 const socialButtons = document.querySelectorAll(".social-btn");
 const socialBlock = document.querySelector(".social-block");
+const profilePanel = document.querySelector("#profilePanel");
+const profileUsername = document.querySelector("#profileUsername");
+const profileEmail = document.querySelector("#profileEmail");
+const profileLogoutBtn = document.querySelector("#profileLogoutBtn");
+const passwordToggles = document.querySelectorAll("[data-toggle-password]");
 
 const authModal = document.querySelector("#authModal");
 const authModalTitle = document.querySelector("#authModalTitle");
@@ -40,6 +47,10 @@ let modalMode = "";
 let resetVerifiedToken = "";
 let modalCooldownEndsAt = 0;
 let cooldownTimer = null;
+
+function goHome() {
+  window.location.href = "/";
+}
 
 function setStatus(target, message, isError = false) {
   target.textContent = message;
@@ -132,31 +143,29 @@ function openModal(mode, email = "") {
 function updateAuthUI() {
   const signedIn = Boolean(currentUser);
   authTabs.forEach((tab) => tab.classList.toggle("hidden", signedIn));
-  authSubmit.classList.toggle("hidden", signedIn);
-  logoutBtn.classList.toggle("hidden", !signedIn);
+  authForm.classList.toggle("hidden", signedIn);
+  profilePanel.classList.toggle("hidden", !signedIn);
+  logoutBtn.classList.add("hidden");
   forgotPasswordBtn.classList.toggle("hidden", signedIn || authMode !== "login");
-  rememberRow.classList.toggle("hidden", signedIn || authMode !== "login");
+  rememberRow.classList.toggle("hidden", authMode !== "login");
   authEmailRow.classList.toggle("hidden", authMode !== "signup");
-  socialBlock.classList.toggle("hidden", signedIn);
-
-  authUsername.disabled = signedIn;
-  authEmail.disabled = signedIn;
-  authPassword.disabled = signedIn;
-  rememberMe.disabled = signedIn;
+  socialBlock.classList.toggle("hidden", false);
 
   if (signedIn) {
-    authTitle.textContent = `Signed in as ${currentUser.username}`;
-    authSubtitle.textContent = "Your account is ready. Open My History to see saved text and files.";
-    authUsername.value = currentUser.username;
-    authEmail.value = currentUser.email || "";
-    authPassword.value = "";
-    rememberMe.checked = false;
+    pageTitle.textContent = "Your account";
+    pageSubtitle.textContent = "This page now shows your profile instead of the sign-in form.";
+    authTitle.textContent = `Your profile`;
+    authSubtitle.textContent = "You are signed in. Open your history or jump back home to create a new private share.";
+    profileUsername.value = currentUser.username;
+    profileEmail.value = currentUser.email || "No email saved";
     authHelper.textContent = "";
     setAuthStatus("");
     return;
   }
 
   if (authMode === "signup") {
+    pageTitle.textContent = "Sign in or create an account";
+    pageSubtitle.textContent = "Accounts are optional. Use one when you want your text snippets and files saved into personal history.";
     authTitle.textContent = "Create your account";
     authSubtitle.textContent = "Sign up once, verify your email, and keep your shares in personal history.";
     authUsernameLabel.textContent = "Username";
@@ -166,6 +175,8 @@ function updateAuthUI() {
     authSubmit.textContent = "Create account";
     authHelper.textContent = "Nothing is saved until your verification code is correct.";
   } else {
+    pageTitle.textContent = "Sign in or create an account";
+    pageSubtitle.textContent = "Accounts are optional. Use one when you want your text snippets and files saved into personal history.";
     authTitle.textContent = "Welcome back";
     authSubtitle.textContent = "Sign in with your username or email and password.";
     authUsernameLabel.textContent = "Username or Email";
@@ -175,6 +186,11 @@ function updateAuthUI() {
     authSubmit.textContent = "Login";
     authHelper.textContent = "Use Remember me if you want to stay signed in on this device.";
   }
+
+  authUsername.disabled = false;
+  authEmail.disabled = false;
+  authPassword.disabled = false;
+  rememberMe.disabled = false;
 }
 
 async function loadMe() {
@@ -229,6 +245,7 @@ authForm.addEventListener("submit", async (event) => {
   currentUser = result.user;
   updateAuthUI();
   setAuthStatus("Signed in.");
+  window.setTimeout(goHome, 250);
 });
 
 authModalSendCode.addEventListener("click", async () => {
@@ -297,6 +314,7 @@ authModalSubmit.addEventListener("click", async () => {
     closeModal();
     updateAuthUI();
     setAuthStatus("Account verified and signed in.");
+    window.setTimeout(goHome, 250);
     return;
   }
 
@@ -337,6 +355,28 @@ logoutBtn.addEventListener("click", async () => {
   rememberMe.checked = false;
   updateAuthUI();
   setAuthStatus("Logged out.");
+});
+
+profileLogoutBtn.addEventListener("click", async () => {
+  await fetch("/api/auth/logout", { method: "POST" });
+  currentUser = null;
+  authEmail.value = "";
+  authUsername.value = "";
+  authPassword.value = "";
+  rememberMe.checked = false;
+  updateAuthUI();
+  setAuthStatus("Logged out.");
+});
+
+passwordToggles.forEach((button) => {
+  button.addEventListener("click", () => {
+    const input = document.querySelector(button.dataset.togglePassword || "");
+    if (!input) return;
+    const show = input.type === "password";
+    input.type = show ? "text" : "password";
+    button.textContent = show ? "Hide" : "Show";
+    button.setAttribute("aria-label", show ? "Hide password" : "Show password");
+  });
 });
 
 socialButtons.forEach((button) => {

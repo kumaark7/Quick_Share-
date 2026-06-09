@@ -14,9 +14,9 @@
         <a class="ghost" href="/history.html">My History</a>
       </nav>
 
-        <div class="page-copy">
-        <h1>Sign in or create an account</h1>
-        <p>Accounts are optional. Use one when you want your text snippets and files saved into personal history.</p>
+      <div class="page-copy">
+        <h1 id="pageTitle">Sign in or create an account</h1>
+        <p id="pageSubtitle">Accounts are optional. Use one when you want your text snippets and files saved into personal history.</p>
       </div>
 
       <section class="auth-card">
@@ -42,7 +42,10 @@
           </label>
           <label id="authPasswordRow" class="field">
             <span>Password</span>
-            <input id="authPassword" type="password" placeholder="password" autocomplete="current-password">
+            <div class="password-field">
+              <input id="authPassword" type="password" placeholder="password" autocomplete="current-password">
+              <button class="password-toggle" type="button" data-toggle-password="#authPassword" aria-label="Show password">Show</button>
+            </div>
           </label>
           <label id="rememberRow" class="checkbox-line">
             <input id="rememberMe" type="checkbox">
@@ -64,6 +67,25 @@
           <p id="authHelper" class="helper-text"></p>
           <p id="authStatus" class="status"></p>
         </form>
+
+        <section id="profilePanel" class="profile-panel hidden">
+          <div class="profile-grid">
+            <label class="field">
+              <span>Username</span>
+              <input id="profileUsername" type="text" readonly>
+            </label>
+            <label class="field">
+              <span>Email</span>
+              <input id="profileEmail" type="text" readonly>
+            </label>
+          </div>
+          <p class="helper-text">Your saved text and files stay in your personal history only.</p>
+          <div class="auth-actions">
+            <a class="button" href="/">Go Home</a>
+            <a class="ghost" href="/history.html">Open My History</a>
+            <button id="profileLogoutBtn" class="ghost" type="button">Log out</button>
+          </div>
+        </section>
       </section>
 
       <section id="authModal" class="auth-modal hidden" aria-hidden="true">
@@ -86,7 +108,10 @@
           </label>
           <label id="authModalPasswordRow" class="field hidden">
             <span>New password</span>
-            <input id="authModalPassword" type="password" placeholder="New password" autocomplete="new-password">
+            <div class="password-field">
+              <input id="authModalPassword" type="password" placeholder="New password" autocomplete="new-password">
+              <button class="password-toggle" type="button" data-toggle-password="#authModalPassword" aria-label="Show password">Show</button>
+            </div>
           </label>
 
           <div class="auth-modal-actions">

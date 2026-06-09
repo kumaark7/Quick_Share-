@@ -28,6 +28,15 @@ function formatExpiry(timestamp) {
   return `expires in ${Math.ceil(seconds / 86400)}d`;
 }
 
+function formatOpenedAt(timestamp) {
+  if (!timestamp) return "";
+  const seconds = Math.max(0, Math.floor(Date.now() / 1000) - timestamp);
+  if (seconds < 60) return "just now";
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+  return `${Math.floor(seconds / 86400)}d ago`;
+}
+
 async function copy(value, label) {
   try {
     if (navigator.clipboard && window.isSecureContext) {
@@ -68,6 +77,13 @@ function shareRow(share) {
   const copyTextAction = share.kind === "text" && share.text
     ? "<button type=\"button\" data-copy-text>Copy text</button>"
     : "";
+  const stats = share.view_stats || { total_opens: 0, qr_opens: 0, link_opens: 0, unique_devices: 0, top_devices: [], recent: [] };
+  const topDevices = stats.top_devices.length
+    ? stats.top_devices.map((item) => `${item.label} (${item.count})`).join(" · ")
+    : "No opens yet";
+  const recentOpens = stats.recent.length
+    ? stats.recent.map((item) => `${item.device} on ${item.browser} via ${item.source === "qr" ? "QR" : "link"} · ${formatOpenedAt(item.opened_at)}`).join("<br>")
+    : "No one has opened this share yet.";
   row.innerHTML = `
     <div class="share-main">
       <div class="share-title"></div>
@@ -77,10 +93,19 @@ function shareRow(share) {
         <span>${formatExpiry(share.expires_at)}</span>
         ${share.password_protected ? "<span>locked</span>" : ""}
       </div>
+      <div class="share-stats">
+        <strong>${stats.total_opens}</strong> opens ·
+        <strong>${stats.unique_devices}</strong> devices ·
+        <strong>${stats.qr_opens}</strong> by QR ·
+        <strong>${stats.link_opens}</strong> by link
+      </div>
+      <div class="share-meta-note">${topDevices}</div>
+      <div class="share-meta-note">${recentOpens}</div>
     </div>
     <div class="row-actions">
       <a href="${share.url}" target="_blank" rel="noreferrer">Open</a>
       <button type="button" data-copy-link>Copy link</button>
+      <button type="button" data-share-again>Share again</button>
       ${share.kind === "file" ? "<a data-open-file>Download</a>" : copyTextAction}
       <button type="button" data-delete>Delete</button>
     </div>
@@ -91,6 +116,18 @@ function shareRow(share) {
   if (copyTextButton) copyTextButton.addEventListener("click", () => copy(share.text, "Text"));
   const fileLink = row.querySelector("[data-open-file]");
   if (fileLink) fileLink.href = share.download_url;
+  row.querySelector("[data-share-again]").addEventListener("click", async () => {
+    const response = await fetch(`/api/share-again/${share.id}`, { method: "POST" });
+    const result = await response.json();
+    if (!response.ok) {
+      showToast(result.error || "Could not create new share");
+      return;
+    }
+    const newShare = result.share;
+    await copy(newShare.url, "Link");
+    showToast("New share created and copied");
+    loadHistory();
+  });
   row.querySelector("[data-delete]").addEventListener("click", async () => {
     const response = await fetch(`/api/share/${share.id}`, { method: "DELETE" });
     const result = await response.json();
