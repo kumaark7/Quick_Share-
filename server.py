@@ -8,7 +8,10 @@ import os
 import secrets
 import shutil
 import socket
+import smtplib
+import threading
 import time
+from email.message import EmailMessage
 from email.parser import BytesParser
 from email.policy import default
 from hashlib import pbkdf2_hmac, sha256
@@ -28,6 +31,8 @@ USERS = STORAGE / "users.json"
 MAX_UPLOAD_BYTES = 200 * 1024 * 1024
 SESSION_SECRET = secrets.token_bytes(32)
 SESSION_COOKIE = "quickshare_session"
+CLEANUP_INTERVAL_SECONDS = int(os.environ.get("QUICK_SHARE_CLEANUP_INTERVAL", "60"))
+VERIFY_CODE_TTL_SECONDS = int(os.environ.get("QUICK_SHARE_VERIFY_CODE_TTL", "900"))
 
 
 def now() -> int:
@@ -157,6 +162,10 @@ def hash_password(password: str, salt_hex: str) -> str:
     return pbkdf2_hmac("sha256", password.encode("utf-8"), bytes.fromhex(salt_hex), 120_000).hex()
 
 
+def hash_code(email: str, code: str) -> str:
+    return hmac.new(SESSION_SECRET, f"code:{email.lower()}:{code}".encode("utf-8"), sha256).hexdigest()
+
+
 def share_signature(share_id: str, password_hash: str) -> str:
     return hmac.new(SESSION_SECRET, f"share:{share_id}:{password_hash}".encode("utf-8"), sha256).hexdigest()
 
@@ -167,6 +176,66 @@ def user_signature(user_id: str) -> str:
 
 def normalize_username(username: str) -> str:
     return username.strip().lower()
+
+
+def normalize_email(email: str) -> str:
+    return email.strip().lower()
+
+
+def new_code(length: int = 6) -> str:
+    digits = "0123456789"
+    return "".join(secrets.choice(digits) for _ in range(length))
+
+
+def smtp_settings() -> dict[str, str | int | bool] | None:
+    host = os.environ.get("QUICK_SHARE_SMTP_HOST", "").strip()
+    from_email = os.environ.get("QUICK_SHARE_SMTP_FROM", "").strip()
+    if not host or not from_email:
+        return None
+    return {
+        "host": host,
+        "port": int(os.environ.get("QUICK_SHARE_SMTP_PORT", "587")),
+        "username": os.environ.get("QUICK_SHARE_SMTP_USERNAME", "").strip(),
+        "password": os.environ.get("QUICK_SHARE_SMTP_PASSWORD", ""),
+        "from_email": from_email,
+        "use_starttls": os.environ.get("QUICK_SHARE_SMTP_STARTTLS", "true").lower() != "false",
+    }
+
+
+def send_email_code(email: str, subject: str, heading: str, code: str) -> None:
+    settings = smtp_settings()
+    if not settings:
+        raise RuntimeError("Email sending is not configured on this server yet")
+
+    message = EmailMessage()
+    message["From"] = str(settings["from_email"])
+    message["To"] = email
+    message["Subject"] = subject
+    message.set_content(
+        f"{heading}\n\n"
+        f"Your Quick Share code is: {code}\n\n"
+        f"This code expires in {VERIFY_CODE_TTL_SECONDS // 60} minutes."
+    )
+
+    with smtplib.SMTP(str(settings["host"]), int(settings["port"]), timeout=20) as smtp:
+        smtp.ehlo()
+        if settings["use_starttls"]:
+            smtp.starttls()
+            smtp.ehlo()
+        username = str(settings["username"])
+        password = str(settings["password"])
+        if username:
+            smtp.login(username, password)
+        smtp.send_message(message)
+
+
+def cleanup_loop() -> None:
+    while True:
+        try:
+            cleanup_expired()
+        except Exception as exc:
+            print(f"[cleanup] {exc}")
+        time.sleep(max(15, CLEANUP_INTERVAL_SECONDS))
 
 
 class ShareHandler(BaseHTTPRequestHandler):
@@ -322,8 +391,17 @@ class ShareHandler(BaseHTTPRequestHandler):
         if self.path == "/api/auth/signup":
             self.handle_signup()
             return
+        if self.path == "/api/auth/verify-signup":
+            self.handle_verify_signup()
+            return
         if self.path == "/api/auth/login":
             self.handle_login()
+            return
+        if self.path == "/api/auth/send-login-code":
+            self.handle_send_login_code()
+            return
+        if self.path == "/api/auth/verify-login-code":
+            self.handle_verify_login_code()
             return
         if self.path == "/api/auth/logout":
             self.handle_logout()
@@ -365,7 +443,7 @@ class ShareHandler(BaseHTTPRequestHandler):
         if not user:
             self.send_json({"authenticated": False})
             return
-        self.send_json({"authenticated": True, "user": {"id": user["id"], "username": user["username"]}})
+        self.send_json({"authenticated": True, "user": {"id": user["id"], "username": user["username"], "email": user.get("email", "")}})
 
     def public_share_list(self) -> list[dict]:
         shares = load_shares()
@@ -396,10 +474,14 @@ class ShareHandler(BaseHTTPRequestHandler):
             self.send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
             return
         username = str(fields.get("username") or "").strip()
+        email = normalize_email(str(fields.get("email") or ""))
         password = str(fields.get("password") or "")
         normalized = normalize_username(username)
         if len(normalized) < 3:
             self.send_json({"error": "Username needs at least 3 characters"}, HTTPStatus.BAD_REQUEST)
+            return
+        if "@" not in email or "." not in email:
+            self.send_json({"error": "Enter a valid email address"}, HTTPStatus.BAD_REQUEST)
             return
         if len(password) < 4:
             self.send_json({"error": "Password needs at least 4 characters"}, HTTPStatus.BAD_REQUEST)
@@ -408,20 +490,77 @@ class ShareHandler(BaseHTTPRequestHandler):
         if any(normalize_username(user["username"]) == normalized for user in users.values()):
             self.send_json({"error": "That username is already taken"}, HTTPStatus.CONFLICT)
             return
+        if any(normalize_email(user.get("email", "")) == email for user in users.values()):
+            self.send_json({"error": "That email is already in use"}, HTTPStatus.CONFLICT)
+            return
         user_id = new_id(users, length=8)
         salt = secrets.token_hex(16)
+        code = new_code()
         user = {
             "id": user_id,
             "username": username,
+            "email": email,
             "password_salt": salt,
             "password_hash": hash_password(password, salt),
             "created_at": now(),
+            "verified_at": None,
+            "signup_code_hash": hash_code(email, code),
+            "signup_code_expires_at": now() + VERIFY_CODE_TTL_SECONDS,
+            "login_code_hash": None,
+            "login_code_expires_at": None,
         }
+        try:
+            send_email_code(email, "Verify your Quick Share account", "Finish your signup", code)
+        except RuntimeError as exc:
+            self.send_json({"error": str(exc)}, HTTPStatus.SERVICE_UNAVAILABLE)
+            return
+        except OSError as exc:
+            self.send_json({"error": f"Could not send verification email: {exc}"}, HTTPStatus.BAD_GATEWAY)
+            return
         users[user_id] = user
+        save_users(users)
+        self.send_json(
+            {
+                "ok": True,
+                "requires_verification": True,
+                "email": email,
+                "message": "Verification code sent. Enter it to finish signup.",
+            }
+        )
+
+    def handle_verify_signup(self) -> None:
+        try:
+            fields = self.read_form()
+        except ValueError as exc:
+            self.send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+            return
+        email = normalize_email(str(fields.get("email") or ""))
+        code = str(fields.get("code") or "").strip()
+        users = load_users()
+        user = next((item for item in users.values() if normalize_email(item.get("email", "")) == email), None)
+        if not user:
+            self.send_json({"error": "No pending signup found for that email"}, HTTPStatus.NOT_FOUND)
+            return
+        if user.get("verified_at"):
+            self.send_json({"error": "That account is already verified"}, HTTPStatus.CONFLICT)
+            return
+        if not code:
+            self.send_json({"error": "Enter the verification code"}, HTTPStatus.BAD_REQUEST)
+            return
+        if (user.get("signup_code_expires_at") or 0) < now():
+            self.send_json({"error": "That verification code expired. Sign up again to get a new one."}, HTTPStatus.UNAUTHORIZED)
+            return
+        expected = user.get("signup_code_hash") or ""
+        if not hmac.compare_digest(expected, hash_code(email, code)):
+            self.send_json({"error": "Wrong verification code"}, HTTPStatus.UNAUTHORIZED)
+            return
+        user["verified_at"] = now()
+        user["signup_code_hash"] = None
+        user["signup_code_expires_at"] = None
         save_users(users)
         self.send_response(200)
         self.set_user_cookie(user)
-        payload = json.dumps({"ok": True, "user": {"id": user["id"], "username": user["username"]}}).encode("utf-8")
+        payload = json.dumps({"ok": True, "user": {"id": user["id"], "username": user["username"], "email": user["email"]}}).encode("utf-8")
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(payload)))
         self.end_headers()
@@ -440,13 +579,79 @@ class ShareHandler(BaseHTTPRequestHandler):
         if not user:
             self.send_json({"error": "Unknown username or password"}, HTTPStatus.UNAUTHORIZED)
             return
+        if not user.get("verified_at"):
+            self.send_json({"error": "Verify your email before signing in"}, HTTPStatus.FORBIDDEN)
+            return
         expected = hash_password(password, user["password_salt"])
         if not hmac.compare_digest(expected, user["password_hash"]):
             self.send_json({"error": "Unknown username or password"}, HTTPStatus.UNAUTHORIZED)
             return
         self.send_response(200)
         self.set_user_cookie(user)
-        payload = json.dumps({"ok": True, "user": {"id": user["id"], "username": user["username"]}}).encode("utf-8")
+        payload = json.dumps({"ok": True, "user": {"id": user["id"], "username": user["username"], "email": user.get("email", "")}}).encode("utf-8")
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def handle_send_login_code(self) -> None:
+        try:
+            fields = self.read_form()
+        except ValueError as exc:
+            self.send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+            return
+        email = normalize_email(str(fields.get("email") or ""))
+        if "@" not in email or "." not in email:
+            self.send_json({"error": "Enter a valid email address"}, HTTPStatus.BAD_REQUEST)
+            return
+        users = load_users()
+        user = next((item for item in users.values() if normalize_email(item.get("email", "")) == email), None)
+        if not user or not user.get("verified_at"):
+            self.send_json({"error": "No verified account found for that email"}, HTTPStatus.NOT_FOUND)
+            return
+        code = new_code()
+        user["login_code_hash"] = hash_code(email, code)
+        user["login_code_expires_at"] = now() + VERIFY_CODE_TTL_SECONDS
+        save_users(users)
+        try:
+            send_email_code(email, "Your Quick Share sign-in code", "Use this code to sign in", code)
+        except RuntimeError as exc:
+            self.send_json({"error": str(exc)}, HTTPStatus.SERVICE_UNAVAILABLE)
+            return
+        except OSError as exc:
+            self.send_json({"error": f"Could not send login email: {exc}"}, HTTPStatus.BAD_GATEWAY)
+            return
+        self.send_json({"ok": True, "message": "Sign-in code sent", "email": email})
+
+    def handle_verify_login_code(self) -> None:
+        try:
+            fields = self.read_form()
+        except ValueError as exc:
+            self.send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+            return
+        email = normalize_email(str(fields.get("email") or ""))
+        code = str(fields.get("code") or "").strip()
+        users = load_users()
+        user = next((item for item in users.values() if normalize_email(item.get("email", "")) == email), None)
+        if not user or not user.get("verified_at"):
+            self.send_json({"error": "No verified account found for that email"}, HTTPStatus.NOT_FOUND)
+            return
+        if not code:
+            self.send_json({"error": "Enter the sign-in code"}, HTTPStatus.BAD_REQUEST)
+            return
+        if (user.get("login_code_expires_at") or 0) < now():
+            self.send_json({"error": "That sign-in code expired. Request a new one."}, HTTPStatus.UNAUTHORIZED)
+            return
+        expected = user.get("login_code_hash") or ""
+        if not hmac.compare_digest(expected, hash_code(email, code)):
+            self.send_json({"error": "Wrong sign-in code"}, HTTPStatus.UNAUTHORIZED)
+            return
+        user["login_code_hash"] = None
+        user["login_code_expires_at"] = None
+        save_users(users)
+        self.send_response(200)
+        self.set_user_cookie(user)
+        payload = json.dumps({"ok": True, "user": {"id": user["id"], "username": user["username"], "email": user.get("email", "")}}).encode("utf-8")
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(payload)))
         self.end_headers()
@@ -763,6 +968,7 @@ def render_share_page(share: dict) -> str:
 
 def main() -> None:
     ensure_storage()
+    threading.Thread(target=cleanup_loop, daemon=True, name="quickshare-cleanup").start()
     host = os.environ.get("QUICK_SHARE_HOST", "0.0.0.0")
     port = int(os.environ.get("QUICK_SHARE_PORT", "8787"))
     server = ThreadingHTTPServer((host, port), ShareHandler)

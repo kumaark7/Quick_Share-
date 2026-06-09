@@ -14,13 +14,13 @@
         <a class="ghost" href="/history.html">My History</a>
       </nav>
 
-      <div class="page-copy">
+        <div class="page-copy">
         <h1>Sign in or create an account</h1>
         <p>Accounts are optional. Use one when you want your text snippets and files saved into personal history.</p>
       </div>
 
       <section class="auth-card">
-        <div class="auth-head">
+          <div class="auth-head">
           <div>
             <h2 id="authTitle">Welcome back</h2>
             <p id="authSubtitle">Sign in to reopen, copy, and delete your saved shares later.</p>
@@ -28,10 +28,15 @@
           <div class="tabs">
             <button class="tab active" type="button" data-auth-mode="login">Login</button>
             <button class="tab" type="button" data-auth-mode="signup">Sign up</button>
+            <button class="tab" type="button" data-auth-mode="email-code">Email code</button>
           </div>
         </div>
 
         <form id="authForm" class="auth-form">
+          <label id="authEmailRow" class="field hidden">
+            <span>Email</span>
+            <input id="authEmail" type="email" placeholder="you@example.com" autocomplete="email">
+          </label>
           <label class="field">
             <span>Username</span>
             <input id="authUsername" type="text" placeholder="yourname" autocomplete="username">
@@ -40,8 +45,13 @@
             <span>Password</span>
             <input id="authPassword" type="password" placeholder="password" autocomplete="current-password">
           </label>
+          <label id="authCodeRow" class="field hidden">
+            <span>Verification code</span>
+            <input id="authCode" type="text" placeholder="6-digit code" inputmode="numeric" autocomplete="one-time-code">
+          </label>
           <div class="auth-actions">
             <button id="authSubmit" class="button" type="submit">Login</button>
+            <button id="authSecondaryBtn" class="ghost hidden" type="button">Verify code</button>
             <button id="logoutBtn" class="ghost hidden" type="button">Log out</button>
           </div>
           <p id="authStatus" class="status"></p>
