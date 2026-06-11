@@ -13,7 +13,6 @@
         <a class="back" href="/">Back Home</a>
         <div class="nav-actions">
           <a class="ghost" href="/history.html">My History</a>
-          <a id="authAdminLink" class="ghost hidden" href="/admin">Admin</a>
         </div>
       </nav>
 
@@ -50,6 +49,13 @@
               <button class="password-toggle" type="button" data-toggle-password="#authPassword" aria-label="Show password">Show</button>
             </div>
           </label>
+          <section id="authCaptchaRow" class="captcha-box hidden">
+            <div class="captcha-copy">
+              <strong>Security check</strong>
+              <p id="authCaptchaPrompt">Solve the challenge to continue.</p>
+            </div>
+            <input id="authCaptchaAnswer" type="text" placeholder="Type the answer">
+          </section>
           <label id="rememberRow" class="checkbox-line">
             <input id="rememberMe" type="checkbox">
             <span>Remember me?</span>
@@ -86,7 +92,6 @@
           <div class="auth-actions">
             <a class="button" href="/">Go Home</a>
             <a class="ghost" href="/history.html">Open My History</a>
-            <a id="profileAdminLink" class="ghost hidden" href="/admin">Admin</a>
             <button id="profileLogoutBtn" class="ghost" type="button">Log out</button>
           </div>
         </section>

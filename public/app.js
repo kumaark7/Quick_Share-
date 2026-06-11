@@ -5,8 +5,12 @@ const filePanel = document.querySelector("#filePanel");
 const textInput = document.querySelector("#textInput");
 const fileInput = document.querySelector("#fileInput");
 const fileName = document.querySelector("#fileName");
+const uploadLimitNote = document.querySelector("#uploadLimitNote");
 const expiresInput = document.querySelector("#expiresInput");
 const passwordInput = document.querySelector("#passwordInput");
+const shareCaptchaRow = document.querySelector("#shareCaptchaRow");
+const shareCaptchaPrompt = document.querySelector("#shareCaptchaPrompt");
+const shareCaptchaAnswer = document.querySelector("#shareCaptchaAnswer");
 const saveRow = document.querySelector("#saveRow");
 const saveToProfileInput = document.querySelector("#saveToProfileInput");
 const statusLine = document.querySelector("#status");
@@ -15,7 +19,6 @@ const refreshBtn = document.querySelector("#refreshBtn");
 const addressBar = document.querySelector("#addressBar");
 const authLink = document.querySelector("#authLink");
 const signupLink = document.querySelector("#signupLink");
-const adminLink = document.querySelector("#adminLink");
 const resultCard = document.querySelector("#resultCard");
 const resultLink = document.querySelector("#resultLink");
 const copyResultBtn = document.querySelector("#copyResultBtn");
@@ -24,6 +27,7 @@ const NEVER_OPTION = '<option value="never">Never</option>';
 
 let activeKind = "text";
 let currentUser = null;
+let shareCaptchaToken = "";
 
 function showToast(message) {
   toast.textContent = message;
@@ -34,6 +38,13 @@ function showToast(message) {
 function setStatus(message, isError = false) {
   statusLine.textContent = message;
   statusLine.classList.toggle("error", isError);
+}
+
+function setShareCaptcha(challenge) {
+  shareCaptchaToken = challenge?.token || "";
+  shareCaptchaPrompt.textContent = challenge?.prompt || "Solve the challenge to continue.";
+  shareCaptchaAnswer.value = "";
+  shareCaptchaRow.classList.toggle("hidden", !shareCaptchaToken);
 }
 
 function formatBytes(bytes = 0) {
@@ -100,7 +111,9 @@ async function loadMe() {
   saveToProfileInput.disabled = !currentUser;
   authLink.textContent = currentUser ? `Signed in: ${currentUser.username}` : "Sign In";
   signupLink.classList.toggle("hidden", Boolean(currentUser));
-  adminLink.classList.toggle("hidden", !(currentUser && currentUser.is_admin));
+  uploadLimitNote.textContent = currentUser
+    ? "Signed-in users can upload up to 500 MB."
+    : "Guest uploads can be up to 250 MB. Sign in to upload up to 500 MB.";
   const hasNever = expiresInput.querySelector('option[value="never"]');
   if (currentUser && !hasNever) {
     expiresInput.insertAdjacentHTML("beforeend", NEVER_OPTION);
@@ -178,6 +191,8 @@ form.addEventListener("submit", async (event) => {
   data.set("expires", expiresInput.value);
   data.set("password", passwordInput.value);
   data.set("save_to_profile", currentUser && saveToProfileInput.checked ? "true" : "false");
+  data.set("captcha_token", shareCaptchaToken);
+  data.set("captcha_answer", shareCaptchaAnswer.value.trim());
   if (activeKind === "text") {
     data.set("text", textInput.value);
   } else if (fileInput.files[0]) {
@@ -188,10 +203,14 @@ form.addEventListener("submit", async (event) => {
   const response = await fetch("/api/share", { method: "POST", body: data });
   const result = await response.json();
   if (!response.ok) {
+    if (result.captcha_required) {
+      setShareCaptcha(result);
+    }
     setStatus(result.error || "Could not create share", true);
     return;
   }
 
+  setShareCaptcha(null);
   renderResult(result.url);
   setStatus(`Ready: ${result.url}`);
   await copy(result.url, "Share link");

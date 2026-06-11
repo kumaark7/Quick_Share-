@@ -1,6 +1,5 @@
 const historyList = document.querySelector("#historyList");
 const historyCopy = document.querySelector("#historyCopy");
-const historyAdminLink = document.querySelector("#historyAdminLink");
 const historyAuthLink = document.querySelector("#historyAuthLink");
 const historySignupLink = document.querySelector("#historySignupLink");
 const historyRefreshBtn = document.querySelector("#historyRefreshBtn");
@@ -146,7 +145,6 @@ async function loadMe() {
   const response = await fetch("/api/me");
   const result = await response.json();
   currentUser = result.authenticated ? result.user : null;
-  historyAdminLink.classList.toggle("hidden", !(currentUser && currentUser.is_admin));
   historyAuthLink.textContent = currentUser ? `Signed in: ${currentUser.username}` : "Sign In";
   historySignupLink.classList.toggle("hidden", Boolean(currentUser));
   historyCopy.textContent = currentUser

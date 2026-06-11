@@ -19,7 +19,6 @@
         </div>
         <div class="nav-actions">
           <a class="ghost" href="/history.html">My History</a>
-          <a id="adminLink" class="ghost hidden" href="/admin">Admin</a>
           <a id="authLink" class="ghost" href="/auth.html">Sign In</a>
           <a id="signupLink" class="ghost" href="/auth.html?mode=signup">Sign Up</a>
           <button id="refreshBtn" class="ghost" type="button">Refresh</button>
@@ -47,6 +46,7 @@
           <input id="fileInput" type="file">
           <strong>Choose a file</strong>
           <span id="fileName">or drag it here from your desktop</span>
+          <small id="uploadLimitNote" class="panel-note">Guest uploads can be up to 250 MB. Signed-in users can upload up to 500 MB.</small>
         </label>
 
         <div class="form-row">
@@ -69,6 +69,13 @@
           </label>
           <button class="button" type="submit">Create share</button>
         </div>
+        <section id="shareCaptchaRow" class="captcha-box hidden">
+          <div class="captcha-copy">
+            <strong>Security check</strong>
+            <p id="shareCaptchaPrompt">Solve the challenge to continue.</p>
+          </div>
+          <input id="shareCaptchaAnswer" type="text" placeholder="Type the answer">
+        </section>
         <p id="status" class="status"></p>
       </form>
 

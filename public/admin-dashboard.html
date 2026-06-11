@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Admin Dashboard | Quick Share</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main class="page-shell admin-shell">
+    <section class="page-card admin-card">
+      <section id="adminDashboard" class="admin-panel">
+        <div class="page-copy admin-copy">
+          <h1>Admin Control Panel</h1>
+          <p>Confidential account management.</p>
+        </div>
+
+        <div class="admin-toolbar">
+          <label class="admin-search">
+            <input id="adminSearch" type="search" placeholder="Search by email or username">
+          </label>
+          <div class="admin-toolbar-actions">
+            <button id="adminRefreshBtn" class="ghost" type="button">Refresh</button>
+            <button id="adminExportBtn" class="ghost" type="button">Export</button>
+            <button id="adminLogoutBtn" class="ghost" type="button">Log out</button>
+          </div>
+        </div>
+
+        <p id="adminStatus" class="status"></p>
+
+        <div class="admin-table-wrap">
+          <table class="admin-table">
+            <thead>
+              <tr>
+                <th>Account</th>
+                <th>State</th>
+                <th>Activity</th>
+                <th>Storage Used</th>
+                <th>Shares</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="adminTableBody"></tbody>
+          </table>
+        </div>
+      </section>
+    </section>
+  </main>
+  <div id="toast" class="toast"></div>
+  <div id="adminContextMenu" class="admin-context-menu hidden">
+    <button class="ghost" type="button" data-menu-action="activate">Activate</button>
+    <button class="ghost warn" type="button" data-menu-action="suspend">Suspend</button>
+    <button class="ghost danger" type="button" data-menu-action="ban">Ban</button>
+    <button class="ghost danger" type="button" data-menu-action="delete">Delete</button>
+  </div>
+  <script src="/admin-dashboard.js"></script>
+</body>
+</html>

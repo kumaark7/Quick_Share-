@@ -9,6 +9,9 @@ const authEmailRow = document.querySelector("#authEmailRow");
 const authUsername = document.querySelector("#authUsername");
 const authUsernameLabel = document.querySelector("#authUsernameLabel");
 const authPassword = document.querySelector("#authPassword");
+const authCaptchaRow = document.querySelector("#authCaptchaRow");
+const authCaptchaPrompt = document.querySelector("#authCaptchaPrompt");
+const authCaptchaAnswer = document.querySelector("#authCaptchaAnswer");
 const rememberRow = document.querySelector("#rememberRow");
 const rememberMe = document.querySelector("#rememberMe");
 const authSubmit = document.querySelector("#authSubmit");
@@ -16,14 +19,12 @@ const logoutBtn = document.querySelector("#logoutBtn");
 const forgotPasswordBtn = document.querySelector("#forgotPasswordBtn");
 const authHelper = document.querySelector("#authHelper");
 const authStatus = document.querySelector("#authStatus");
-const authAdminLink = document.querySelector("#authAdminLink");
 const socialButtons = document.querySelectorAll(".social-btn");
 const socialBlock = document.querySelector(".social-block");
 const profilePanel = document.querySelector("#profilePanel");
 const profileUsername = document.querySelector("#profileUsername");
 const profileEmail = document.querySelector("#profileEmail");
 const profileLogoutBtn = document.querySelector("#profileLogoutBtn");
-const profileAdminLink = document.querySelector("#profileAdminLink");
 const passwordToggles = document.querySelectorAll("[data-toggle-password]");
 
 const authModal = document.querySelector("#authModal");
@@ -49,6 +50,7 @@ let modalMode = "";
 let resetVerifiedToken = "";
 let modalCooldownEndsAt = 0;
 let cooldownTimer = null;
+let authCaptchaToken = "";
 
 function goHome() {
   window.location.href = "/";
@@ -69,6 +71,22 @@ function setModalStatus(message, isError = false) {
 
 function setHidden(element, hidden) {
   element.classList.toggle("hidden", hidden);
+}
+
+function setAuthCaptcha(challenge) {
+  authCaptchaToken = challenge?.token || "";
+  authCaptchaPrompt.textContent = challenge?.prompt || "Solve the challenge to continue.";
+  authCaptchaAnswer.value = "";
+  setHidden(authCaptchaRow, !authCaptchaToken);
+}
+
+async function loadAuthCaptcha(scope) {
+  const response = await fetch(`/api/captcha?scope=${encodeURIComponent(scope)}`);
+  const result = await response.json();
+  if (!response.ok) {
+    throw new Error(result.error || "Could not load CAPTCHA");
+  }
+  setAuthCaptcha(result);
 }
 
 function stopCooldown() {
@@ -144,9 +162,6 @@ function openModal(mode, email = "") {
 
 function updateAuthUI() {
   const signedIn = Boolean(currentUser);
-  const isAdmin = Boolean(currentUser && currentUser.is_admin);
-  authAdminLink.classList.toggle("hidden", !isAdmin);
-  profileAdminLink.classList.toggle("hidden", !isAdmin);
   authTabs.forEach((tab) => tab.classList.toggle("hidden", signedIn));
   authForm.classList.toggle("hidden", signedIn);
   profilePanel.classList.toggle("hidden", !signedIn);
@@ -157,6 +172,7 @@ function updateAuthUI() {
   socialBlock.classList.toggle("hidden", false);
 
   if (signedIn) {
+    setAuthCaptcha(null);
     pageTitle.textContent = "Your account";
     pageSubtitle.textContent = "This page now shows your profile instead of the sign-in form.";
     authTitle.textContent = `Your profile`;
@@ -179,6 +195,9 @@ function updateAuthUI() {
     authPassword.autocomplete = "new-password";
     authSubmit.textContent = "Create account";
     authHelper.textContent = "Nothing is saved until your verification code is correct.";
+    if (!authCaptchaToken) {
+      loadAuthCaptcha("signup").catch((error) => setAuthStatus(error.message || "Could not load CAPTCHA", true));
+    }
   } else {
     pageTitle.textContent = "Sign in or create an account";
     pageSubtitle.textContent = "Accounts are optional. Use one when you want your text snippets and files saved into personal history.";
@@ -190,6 +209,7 @@ function updateAuthUI() {
     authPassword.autocomplete = "current-password";
     authSubmit.textContent = "Login";
     authHelper.textContent = "Use Remember me if you want to stay signed in on this device.";
+    setAuthCaptcha(null);
   }
 
   authUsername.disabled = false;
@@ -225,18 +245,29 @@ authForm.addEventListener("submit", async (event) => {
     data.set("email", authEmail.value.trim());
     data.set("username", authUsername.value.trim());
     data.set("password", authPassword.value);
+    data.set("captcha_token", authCaptchaToken);
+    data.set("captcha_answer", authCaptchaAnswer.value.trim());
     setAuthStatus("Preparing your signup...");
   } else {
     data.set("username", authUsername.value.trim());
     data.set("password", authPassword.value);
     data.set("remember_me", rememberMe.checked ? "true" : "false");
+    data.set("captcha_token", authCaptchaToken);
+    data.set("captcha_answer", authCaptchaAnswer.value.trim());
     setAuthStatus("Signing you in...");
   }
 
   const response = await fetch(`/api/auth/${authMode}`, { method: "POST", body: data });
   const result = await response.json();
 
+  if (authMode === "signup" && result.requires_verification) {
+    openModal("signup", result.email || authEmail.value.trim());
+    setAuthStatus(result.message || "Complete your verification to finish creating the account.");
+    return;
+  }
+
   if (!response.ok) {
+    if (result.captcha_required) setAuthCaptcha(result);
     setAuthStatus(result.error || "Could not continue", true);
     return;
   }
@@ -387,6 +418,10 @@ passwordToggles.forEach((button) => {
 socialButtons.forEach((button) => {
   button.addEventListener("click", () => {
     const provider = button.dataset.provider || "Social login";
+    if (provider === "Google") {
+      window.location.href = "/api/auth/google/start";
+      return;
+    }
     setAuthStatus(`${provider} login icon added. The real ${provider} sign-in still needs OAuth keys on the server.`, true);
   });
 });
@@ -398,4 +433,9 @@ if (requestedMode === "signup" || requestedMode === "login") {
   authMode = requestedMode;
   authTabs.forEach((item) => item.classList.toggle("active", item.dataset.authMode === requestedMode));
   updateAuthUI();
+}
+
+const authError = params.get("error");
+if (authError) {
+  setAuthStatus(authError, true);
 }
