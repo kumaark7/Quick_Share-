@@ -175,12 +175,13 @@ adminContextMenu.addEventListener("click", (event) => {
   if (!(target instanceof Element)) return;
   const action = target.getAttribute("data-menu-action");
   if (!action || !openMenuUser) return;
+  const userId = openMenuUser.id;
   closeContextMenu();
   if (action === "delete") {
-    deleteUser(openMenuUser.id);
+    deleteUser(userId);
     return;
   }
-  updateUserStatus(openMenuUser.id, action);
+  updateUserStatus(userId, action);
 });
 
 document.addEventListener("click", () => {

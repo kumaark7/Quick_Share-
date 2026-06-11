@@ -999,6 +999,9 @@ class ShareHandler(BaseHTTPRequestHandler):
         self.record_sensitive_request(path)
         block = self.security_block_reason(path)
         if block and self.is_sensitive_path(path):
+            if path in {"/api/auth/google/start", "/api/auth/google/callback"}:
+                self.redirect(f"/auth.html?{urlencode({'mode': 'login', 'error': block[0]})}")
+                return
             if path.startswith("/api/"):
                 self.send_json({"error": block[0]}, block[1])
             else:
